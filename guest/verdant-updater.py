@@ -36,6 +36,13 @@ def opener():
 def native_fetch(url,target=None,limit=1024*1024):
     bridge=RUNTIME/'bridge';base=bridge/'host-http'
     def path(ext):return base.with_name(base.name+ext)
+    if path('.req').exists() or path('.busy').exists():
+        path('.cancel').write_text('1')
+        print('Waiting for the previous HTTPS transfer to stop...',flush=True)
+        deadline=time.monotonic()+35
+        while path('.req').exists() or path('.busy').exists():
+            if time.monotonic()>deadline:raise TimeoutError('Previous HTTPS transfer is still stopping; retry shortly')
+            time.sleep(.2)
     for ext in ('.res','.cancel','.progress','.data'):path(ext).unlink(missing_ok=True)
     atom(path('.req'),safe_url(url)+'\n')
     print('Connecting to GitHub using Vita HTTPS...',flush=True)

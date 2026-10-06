@@ -15,6 +15,7 @@ static bool vita_http_url(const char *url) {
 static void vita_http_result(const char *message) {
   FILE *f=fopen(VH_BASE ".res.part","wb");
   if(f) { fputs(message,f);fclose(f);rename(VH_BASE ".res.part",VH_BASE ".res"); }
+  remove(VH_BASE ".busy");
 }
 static size_t vita_http_write(char *data,size_t size,size_t count,void *out) {
   size_t n=size*count;
@@ -46,7 +47,6 @@ static void vita_http_process(void) {
   char url[4096];FILE *request=fopen(VH_BASE ".busy","rb");
   bool read=request && fgets(url,sizeof(url),request);
   if(request)fclose(request);
-  remove(VH_BASE ".busy");
   if(!read) { vita_http_result("ERROR\nMissing URL");return; }
   url[strcspn(url,"\r\n")]=0;
   remove(VH_BASE ".res");remove(VH_BASE ".data");
@@ -104,7 +104,7 @@ void plat_http_start(void) {
   remove(VH_BASE ".enabled");
   if(curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK)return;
   atomic_store(&vita_http_stop,false);
-  remove(VH_BASE ".req");remove(VH_BASE ".cancel");remove(VH_BASE ".res");
+  remove(VH_BASE ".req");remove(VH_BASE ".busy");remove(VH_BASE ".cancel");remove(VH_BASE ".res");
   SceUID thread=sceKernelCreateThread("verdant_https",vita_http_entry,0x10000110,131072,0,SCE_KERNEL_CPU_MASK_USER_1,NULL);
   if(thread<0)return;
   if(sceKernelStartThread(thread,0,NULL)<0) { sceKernelDeleteThread(thread);return; }

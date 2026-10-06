@@ -12,6 +12,7 @@ jobs:
           python3 tools/check_vita_assets.py
           python3 tests/updater_test.py
           python3 tests/performance_test.py
+          python3 tests/native_transport_test.py
           python3 tests/offline_tools_test.py
       - name: Test native update recovery
         run: |
