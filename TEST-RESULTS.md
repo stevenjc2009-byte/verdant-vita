@@ -1,4 +1,4 @@
-# Validation — experimental 0.2.2
+# Validation — experimental 0.2.3
 
 - devkitARM ARMv6: 3DSX/CIA generated; check3dsx relocation validation passes.
 - VitaSDK channel 2026.08: native ARM executable, SELF and VPK generated, including camera/mic/audio adapters and original LiveArea assets. Compilation does not establish physical operation.
@@ -17,3 +17,5 @@ Network testing uncovered the upstream image's inactive eth0 and 1970 clock. Sta
 No physical console was tested. Host speed/memory and networking do not validate console Wi-Fi, input, CIA launch, camera/mic/audio, battery values, low-memory performance, lid close or Home Menu transitions. VNC uses protocol fixtures, not real desktop-server interoperability tests.
 
 The user reported Vita installation error 0x8010113D on 0.2.1. Inspection found all LiveArea assets were RGB PNGs (colour type 2). Version 0.2.2 converts them to 8-bit indexed PNGs (colour type 3) with unchanged dimensions and no icon/background transparency. The new asset guard rejects the old VPK and validates the fixed assets. Physical installation success has not yet been confirmed.
+
+The user subsequently reported an immediate return to LiveArea after installing only the thin VPK and confirmed that no runtime ZIP was extracted. Version 0.2.3 adds a standalone bundled setup VPK, native file-copy/hash verification, automatic first-launch setup, conservative Vita heap/RAM limits and startup logging. Sanitized installer tests cover fresh installation, repeat launches, partial-copy recovery, missing-file repair, corrupt-bundle rejection and preservation of existing Linux disk/settings. A physical Vita boot remains unverified.

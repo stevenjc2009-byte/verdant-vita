@@ -16,3 +16,5 @@ jobs:
         run: |
           gcc -O1 -g -fsanitize=address,undefined -Isource/core -Isource/platform/host tests/update_apply_test.c -lcrypto -o /tmp/verdant-update-test
           ASAN_OPTIONS=detect_leaks=0 python3 tests/update_apply_test.py /tmp/verdant-update-test
+          gcc -O1 -g -fsanitize=address,undefined -Isource/core tests/setup_test.c -lcrypto -o /tmp/verdant-setup-test
+          ASAN_OPTIONS=detect_leaks=0 python3 tests/setup_test.py /tmp/verdant-setup-test

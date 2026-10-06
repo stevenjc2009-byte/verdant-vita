@@ -24,6 +24,7 @@
 #define VD_TEXT_COLOR 0xe2efe6
 #define VD_ACCENT 0x88c572
 #include "updater.h"
+#include "setup.h"
 enum {
   VD_TERM,
   VD_FILES,

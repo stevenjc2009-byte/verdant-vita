@@ -42,7 +42,7 @@ int plat_update_title(const char *package) { return 0; }
    symbol, so the guest's RAM has to be asked for way up here instead of found
    later
    */
-unsigned int _newlib_heap_size_user = 192 * 1024 * 1024;
+unsigned int _newlib_heap_size_user = 128 * 1024 * 1024;
 
 _Static_assert(sizeof(SceUID) <= PLAT_MUTEX_SIZE, "PLAT_MUTEX_SIZE too small for SceUID");
 
@@ -122,13 +122,20 @@ static void vita_touch_init(void) {
 
 /* ----------------------------------------------------------------- init -- */
 
+static void vita_init_note(const char *step,int result){
+  FILE *log=fopen("ux0:/verdant/boot.log","ab");if(log){fprintf(log,"Vita init %s: 0x%08x\n",step,(unsigned)result);fclose(log);}
+}
+
 bool plat_init(void) {
   vm_init();
   vita_fb_uid = sceKernelAllocMemBlock("3dscli_fb",
                                        SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
                                        VITA_FB_BYTES, NULL);
+  vita_init_note("framebuffer allocation",vita_fb_uid);
   if (vita_fb_uid < 0) return false;
-  if (sceKernelGetMemBlockBase(vita_fb_uid, (void **)&vita_fb) < 0) return false;
+  int fb_result=sceKernelGetMemBlockBase(vita_fb_uid, (void **)&vita_fb);
+  vita_init_note("framebuffer base",fb_result);
+  if (fb_result < 0) return false;
   memset(vita_fb, 0, VITA_FB_BYTES);
 
   SceDisplayFrameBuf fb = {
@@ -139,7 +146,9 @@ bool plat_init(void) {
     .width       = VITA_SCREEN_W,
     .height      = VITA_SCREEN_H,
   };
-  if (sceDisplaySetFrameBuf(&fb, SCE_DISPLAY_SETBUF_IMMEDIATE) < 0) return false;
+  fb_result=sceDisplaySetFrameBuf(&fb, SCE_DISPLAY_SETBUF_IMMEDIATE);
+  vita_init_note("display setup",fb_result);
+  if (fb_result < 0) return false;
 
   sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
   vita_touch_init();

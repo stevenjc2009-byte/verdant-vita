@@ -1,4 +1,6 @@
-# Verdant Desktop for PS Vita — experimental 0.2.2
+# Verdant Desktop for PS Vita — experimental 0.2.3
+
+Version 0.2.3 provides a **self-contained, one-click setup VPK**. It contains the Linux image, service scripts and HTTPS certificates. First launch copies and verifies these files, then extracts the Linux filesystem and boots it automatically. No separate ZIP extraction or manual folder creation is required. The earlier thin VPKs did not include the runtime.
 
 Version 0.2.2 fixes the reported VitaShell installation error **0x8010113D**. All three LiveArea PNGs are now non-interlaced, 8-bit indexed images. The build checks resource dimensions, PNG checksums, palette format and transparency before and after VPK packaging. Versions 0.2.1 and earlier used RGB images and should be replaced with this build for installation.
 
@@ -8,14 +10,16 @@ The 3DS build was developed and packaged first. This second target shares the de
 
 ## Installation
 
-1. On a homebrew-enabled Vita, extract the Vita install ZIP to `ux0:`. Keep `ux0:/verdant/Image` and the accompanying guest scripts together.
-2. Install `verdant.vpk` with VitaShell. Launch the **Verdant Desktop** bubble (title ID `VRDT00001`).
-3. Allow the first launch to extract the approximately 192 MB Linux disk. Keep at least 500 MB free, preferably more.
+1. Transfer the standalone `verdant.vpk` from the latest GitHub release to your homebrew-enabled Vita. The full VPK is approximately 57 MB.
+2. Install it with VitaShell, accepting replacement of the existing Verdant application if requested. Launch the **Verdant Desktop** bubble (title ID `VRDT00001`).
+3. Leave it running through automatic runtime setup and extraction of the approximately 192 MB Linux disk. Keep at least 500 MB free, preferably 1 GB. First launch can take several minutes; progress is displayed.
 4. Configure networking in the Vita's settings. Linux uses the same NAT bridge and startup configuration as the 3DS build.
 
 The runtime is `ux0:/verdant/`. For compatibility with the shared guest image, this storage appears inside Linux at **`/mnt/3ds/sd`**, including on Vita. Linux files and shell history live in the persistent `rootfs.ext2` disk. Read README.md for SSH authentication, downloads, VNC, packages, backup and recovery instructions.
 
-To rebuild, install VitaSDK and its required portlibs, set `VITASDK` and put its `bin` directory on PATH, then run `make -f mk/vita.mk -j4`. The VPK is produced at `dist/vita/verdant.vpk`. Do not bundle the toolchain into the application.
+To rebuild, install VitaSDK and its required portlibs, set `VITASDK` and put its `bin` directory on PATH, then run `make -f mk/vita.mk -j4`. This produces the thin application VPK at `dist/vita/verdant.vpk`. With the patched `Image` present, run `python tools/bundle_vita_setup.py` to produce the standalone installer at `dist/vita/verdant-setup.vpk`. The GitHub standalone asset is named `verdant.vpk`; the online update ZIP intentionally retains a thin VPK because it already supplies runtime files separately. Do not bundle the toolchain into the application.
+
+Setup preserves existing Linux disks, preferences and user documents. Partial copies are verified before installation and can retry on relaunch. Program files from a previous setup are preserved under `verdant/setup-backup/`. The startup diagnostic log is `ux0:/verdant/boot.log`. A boot error waits for a new Start press after the launch button has been released, rather than consuming the launch press as an exit command. The native heap is capped at 128 MB and guest RAM at 96 MB in this conservative build.
 
 ## Screen and controls
 

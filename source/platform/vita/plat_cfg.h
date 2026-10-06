@@ -30,12 +30,11 @@
 #define TERM_ROWS        44
 #define TERM_SCROLLBACK  200
 
-/* An app's share of the 512MB is ~256MB once the system takes its cut, and
-   plat.c asks newlib for 192MB*/
-#define PLAT_RAM_MAX_MB  128
+/* Conservative startup profile: 128 MB native heap, at most 96 MB guest RAM. */
+#define PLAT_RAM_MAX_MB  96
 #define PLAT_RAM_MIN_MB  8
 
-/* With 128MB the guest has zero use for one */
+/* No swap file by default on Vita. */
 #define PLAT_WANT_SWAP   false
 
 /* This console has a network stack; see virtio_net.h. */

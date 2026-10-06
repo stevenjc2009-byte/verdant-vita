@@ -1,12 +1,14 @@
 # Verdant for PlayStation Vita
 
-This repository publishes the **vita** update channel. Release 0.2.2 corrects VitaShell installation error 0x8010113D by using indexed LiveArea PNGs. Releases use `verdant-vita-update.zip`. See [VITA.md](VITA.md) and [UPDATES.md](UPDATES.md).
+The standalone **verdant.vpk** in release 0.2.3 includes Linux and performs automatic first-launch setup. Install it in VitaShell and launch; no separate ZIP extraction is required. The update channel uses `verdant-vita-update.zip` with a thin VPK and separately staged runtime files. See [VITA.md](VITA.md).
 
-# Verdant Desktop â€” experimental 0.2.2 (Vita image-format fix)
+# Verdant Desktop â€” experimental 0.2.3 (Vita one-click setup)
 
 An original dark-green desktop for real Linux inside a homebrew application, based on 3DS-CLI 5.3. **This is an experimental build, not a complete Linux Mint port. No physical console has been tested.** See FEATURE-STATUS.md and TEST-RESULTS.md.
 
 The 3DS release includes both CIA and 3DSX builds. The subsequent PS Vita release includes a VPK; see VITA.md for its installation, controls and research.
+
+The latest standalone Vita VPK bundles its runtime and installs it automatically on first launch. Install that VPK in VitaShell, launch it and allow setup to finish; no manual ZIP extraction is needed. The small VPK inside the update ZIP is reserved for installations whose runtime is already present.
 
 ## Install on 3DS/2DS
 

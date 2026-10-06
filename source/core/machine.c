@@ -33,6 +33,10 @@ static void term_printf(const char *format, ...) {
   }
 }
 
+static void boot_note(const char *s){
+  FILE *log=fopen(PLAT_SD "verdant/boot.log","ab");if(log){fprintf(log,"%s\n",s);fclose(log);}
+}
+
 
 
 // ---------------------------------------------------------
@@ -823,13 +827,19 @@ static int32_t HandleOtherCSRRead(uint8_t *image, uint16_t csrno) { return 0; }
 
 
 int main(int argc, char **argv) {
+  mkdir(PLAT_SD "verdant",0777);
+  FILE *startup_log=fopen(PLAT_SD "verdant/boot.log","wb");if(startup_log)fclose(startup_log);
+  boot_note("Entered application main");
   plat_mutex_init(&ui_lock);
 
-  if (!plat_init()) return -1;
+  boot_note("Initializing platform");
+  if (!plat_init()){boot_note("Platform initialization failed before display was ready");return -1;}
+  boot_note("Platform initialized");
   plat_ui_cadence(&g_top_refresh_us, &g_input_poll_us);
 
   term_init(&term_state);
   vd_init();
+  boot_note("Desktop initialized");
 
   if(!vd.recovery){
     char update_message[256]={0};bool updated=vu_apply(update_message,sizeof(update_message));
@@ -848,6 +858,21 @@ int main(int argc, char **argv) {
   if(vd.recovery)cfg_defaults(&g_cfg);else cfg_load(&g_cfg);
   g_cfg.analytics = false;
   g_cfg.dev_nand = g_cfg.dev_twl = false;
+  uint64_t setup_tick=0;
+  boot_note("Checking bundled first-launch setup");
+  if(!vs_install(&setup_tick)){
+    boot_note("First-launch setup failed; see displayed error");
+    term_printf("Setup failed. Check free storage and reinstall the complete VPK.\nPress Start after releasing the launch button to exit.\n");
+    bool released=false;
+    while(plat_running()){
+      plat_input_t input;plat_poll_input(&input);
+      if(!(input.held&PLAT_BTN_QUIT))released=true;
+      if(released&&(input.down&PLAT_BTN_QUIT))break;
+      PresentTopScreen(&setup_tick);plat_sleep_us(20000);
+    }
+    vd_shutdown();plat_exit();return -1;
+  }
+  boot_note("First-launch setup ready");
 
   /* Snapshot the device flags before the emulation thread exists. The 9P tree
      toggles are finer-grained than the device - one virtio-9p channel carries
@@ -912,8 +937,9 @@ int main(int argc, char **argv) {
 
   if (!f && PromptDownloadImage(&last_present_tick)) f = fopen(PLAT_SD "verdant/Image", "rb");
   if (!f) {
-    term_printf("Error: Could not open '" PLAT_SD "Image'.\n");
-    term_printf("Please copy Image to " PLAT_SD "\n");
+    boot_note("Runtime Image is absent");
+    term_printf("Error: Could not open '" PLAT_SD "verdant/Image'.\n");
+    term_printf("Install the complete standalone Vita VPK, or the full console ZIP.\n");
     goto wait_exit;
   }
 
@@ -1432,10 +1458,13 @@ after_input:
   return 0;
 
 wait_exit:
+  boot_note("Boot error: waiting for explicit exit");
+  bool exit_released=false;
   while (plat_running()) {
     plat_input_t in;
     plat_poll_input(&in);
-    if (in.down & PLAT_BTN_QUIT) break;
+    if(!(in.held&PLAT_BTN_QUIT))exit_released=true;
+    if(exit_released && (in.down & PLAT_BTN_QUIT))break;
     plat_fb_t fb;
     if (plat_surface(PLAT_SURF_TERM, &fb)) term_draw(&term_state, &fb);
     plat_present(PLAT_SURF_BIT(PLAT_SURF_TERM));

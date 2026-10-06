@@ -13,7 +13,7 @@ def package(platform):
     for name in ('README.md','FEATURE-STATUS.md','TEST-RESULTS.md','RESEARCH.md','SOURCE-VERSIONS.md','LICENSE','VITA.md','UPDATES.md'):
         if (project/name).exists():files['docs/'+name]=project/name
     for name in ('manage_install.py','update_install.py'):files['tools/'+name]=project/'tools'/name
-    manifest={'version':'0.2.2','platform':platform,'sha256':{n:hashlib.sha256(p.read_bytes()).hexdigest() for n,p in files.items()}}
+    manifest={'version':'0.2.3','platform':platform,'sha256':{n:hashlib.sha256(p.read_bytes()).hexdigest() for n,p in files.items()}}
     dest=out/f'verdant-{platform}-update.zip'
     with zipfile.ZipFile(dest,'w',zipfile.ZIP_DEFLATED) as z:
         for name,path in files.items():z.write(path,name)
@@ -23,7 +23,7 @@ def package(platform):
         for name,digest in manifest['sha256'].items():assert hashlib.sha256(z.read(name)).hexdigest()==digest
     print('Validated install ZIP:',dest)
 def source():
-    dest=out/'verdant-source-0.2.2.zip'
+    dest=out/'verdant-source-0.2.3.zip'
     excluded={'.git','build','build-vita','dist','__pycache__','.github'}
     with zipfile.ZipFile(dest,'w',zipfile.ZIP_DEFLATED) as z:
         for f in project.rglob('*'):
