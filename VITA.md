@@ -1,0 +1,49 @@
+# Verdant Desktop for PS Vita — experimental 0.1
+
+The 3DS build was developed and packaged first. This second target shares the desktop, guest service and RV32 Linux runtime, with a VitaSDK platform adapter. It is a compiled homebrew application, not a replacement for Vita firmware and not native Linux Mint. No physical Vita has been tested.
+
+## Installation
+
+1. On a homebrew-enabled Vita, extract the Vita install ZIP to `ux0:`. Keep `ux0:/verdant/Image` and the accompanying guest scripts together.
+2. Install `verdant.vpk` with VitaShell. Launch the **Verdant Desktop** bubble (title ID `VRDT00001`).
+3. Allow the first launch to extract the approximately 192 MB Linux disk. Keep at least 500 MB free, preferably more.
+4. Configure networking in the Vita's settings. Linux uses the same NAT bridge and startup configuration as the 3DS build.
+
+The runtime is `ux0:/verdant/`. For compatibility with the shared guest image, this storage appears inside Linux at **`/mnt/3ds/sd`**, including on Vita. Linux files and shell history live in the persistent `rootfs.ext2` disk. Read README.md for SSH authentication, downloads, VNC, packages, backup and recovery instructions.
+
+To rebuild, install VitaSDK and its required portlibs, set `VITASDK` and put its `bin` directory on PATH, then run `make -f mk/vita.mk -j4`. The VPK is produced at `dist/vita/verdant.vpk`. Do not bundle the toolchain into the application.
+
+## Screen and controls
+
+The Vita uses one 960×544 canvas. It has upper and lower logical window regions; the lower region also hosts the touchscreen keyboard. There are no two physical screens to swap. Moving a terminal between regions preserves its process. Four workspaces, window focus, resizing, minimizing and maximizing use the shared desktop implementation.
+
+| Control | Action |
+|---|---|
+| Front touch | Pointer and desktop buttons; optional relative touchpad mode |
+| Left stick + Cross | Pointer movement and click/drag |
+| Square | Switch window |
+| Triangle | Move focused window between logical regions |
+| Select | Launcher |
+| Select + Square | Keyboard toggle |
+| Select + Triangle / Select + Right | Next workspace |
+| Select + left stick | Workspace panning |
+| L / R | Terminal zoom |
+| Circle | Hide keyboard/menu |
+| Start | Request Linux sync and shutdown; second press forces exit |
+
+Rear touch is not integrated. Physical controls, sleep/resume and LiveArea transitions require device testing.
+
+## Media implementation and limits
+
+Camera snapshots use the Vita camera API, convert a 320×240 frame to RGB565 and letterbox it within the shared viewer. Microphone recording uses the 16 kHz capture API and resamples into the shared WAV format. Audio output runs on a separate thread and resamples into the Vita's 48 kHz stereo output. These adapters compile but their physical operation is unverified. Camera/microphone are disabled for the PlayStation TV model; arbitrary music/video playback remains unfinished.
+
+The guest is interpreted RV32 Linux rather than native ARM Linux. Expect substantial performance limits. There is no X11/Wayland environment or general Linux graphical-application support in this build. The native desktop supplies its own small graphical applications. The feature-status table applies to both targets unless a console-specific qualification is stated.
+
+## Research
+
+- [VitaSDK](https://vitasdk.org/) provides homebrew compilation and VPK packaging. This build uses channel 2026.08. The VPK installs a normal homebrew bubble and contains the executable and LiveArea assets.
+- [xerpi's bare-metal Linux loader](https://github.com/xerpi/vita-baremetal-linux-loader) is a different approach: it expects a separately built kernel and device tree under `ux0:/linux`, with UART debugging instructions. Its repository does not supply the complete requested desktop distribution. Porting a modern kernel and hardware drivers would be a separate project.
+- [vita-moonlight](https://github.com/xyzz/vita-moonlight) documents release 0.13.2 and Sunshine streaming support. It is an existing separate application worth evaluating for a smoother remote desktop; it is not bundled or integrated into Verdant.
+- The camera, microphone and audio implementation follows the [VitaSDK API documentation](https://docs.vitasdk.org/) and its [camera sample](https://github.com/vitasdk/samples/tree/master/camera).
+
+Neither the native Linux loader nor Moonlight can simply supply missing local Linux graphics drivers to the shared emulated guest. The practical near-term work is hardware validation, interface refinement and improving the application/runtime integration.

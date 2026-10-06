@@ -1,0 +1,17 @@
+name: Updater checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  updater:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test staging and offline tools
+        run: |
+          python3 tests/updater_test.py
+          python3 tests/offline_tools_test.py
+      - name: Test native update recovery
+        run: |
+          gcc -O1 -g -fsanitize=address,undefined -Isource/core -Isource/platform/host tests/update_apply_test.c -lcrypto -o /tmp/verdant-update-test
+          ASAN_OPTIONS=detect_leaks=0 python3 tests/update_apply_test.py /tmp/verdant-update-test

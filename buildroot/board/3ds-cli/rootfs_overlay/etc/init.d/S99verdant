@@ -1,0 +1,18 @@
+#!/bin/sh
+case "$1" in
+start)
+  mkdir -p /mnt/3ds/sd/verdant/bridge
+  # The userspace NAT has a fixed private address, independent of console Wi-Fi.
+  ip link set eth0 up
+  ip addr replace 10.0.2.15/24 dev eth0
+  ip route replace default via 10.0.2.2
+  printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > /etc/resolv.conf
+  epoch=$(cat /mnt/3ds/sd/verdant/bridge/host-time 2>/dev/null)
+  [ -z "$epoch" ] || date -u -s "@$epoch" >/dev/null 2>&1
+  agent=/usr/local/bin/verdant-agent.py
+  [ ! -f /mnt/3ds/sd/verdant/guest/verdant-agent.py ] || agent=/mnt/3ds/sd/verdant/guest/verdant-agent.py
+  HOME=/root /usr/bin/python3 "$agent" > /mnt/3ds/sd/verdant/bridge/agent.log 2>&1 &
+  echo $! > /var/run/verdant.pid
+  ;;
+stop) [ ! -f /var/run/verdant.pid ] || kill "$(cat /var/run/verdant.pid)" ;;
+esac

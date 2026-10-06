@@ -1,0 +1,38 @@
+# Build outputs
+build/
+build-wiiu/
+build-switch/
+build-wii/
+build-gamecube/
+build-psp/
+build-vita/
+build-ps3/
+dist/
+*.3dsx
+*.smdh
+*.elf
+*.cia
+*.bnr
+rootfs.ext2
+Image
+*.pyc
+__pycache__/
+native-renderer-preview.png
+
+# Buildroot (guest kernel/rootfs build tree — huge, fetched/generated locally)
+buildroot-native/
+buildroot-native-output/
+buildroot/output/
+buildroot/dl/
+buildroot/build/
+
+# Old branding
+3dssh.json
+
+# Editor / IDE
+.vscode/
+.clangd
+
+# OS junk
+.DS_Store
+Thumbs.db

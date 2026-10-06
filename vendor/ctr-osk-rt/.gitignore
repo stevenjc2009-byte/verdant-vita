@@ -1,0 +1,16 @@
+# Build outputs
+build/
+lib/
+*.3dsx
+*.smdh
+*.elf
+*.map
+*.a
+
+# Editor / IDE
+.vscode/
+.clangd
+
+# OS junk
+.DS_Store
+Thumbs.db

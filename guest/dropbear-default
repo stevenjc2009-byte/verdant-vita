@@ -1,0 +1,3 @@
+# Root starts without a local-console password. Never permit a blank password
+# over the network. Set a password with passwd or install authorized_keys.
+DROPBEAR_ARGS="$DROPBEAR_ARGS"

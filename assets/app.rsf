@@ -1,0 +1,146 @@
+BasicInfo:
+  Title                   : "Verdant"
+  CompanyCode             : "00"
+  ProductCode             : "CTR-P-CTAP"
+  ContentType             : Application
+  Logo                    : Nintendo
+
+TitleInfo:
+  # (issue #10).
+  # Title ID: 000400000F911100.
+  UniqueId                : 0xF9122
+  Category                : Application
+
+Option:
+  UseOnSD                 : true
+  FreeProductCode         : true
+  EnableCrypt             : false
+  EnableCompress          : true
+
+AccessControlInfo:
+  IdealProcessor                : 0
+  AffinityMask                  : 1
+  Priority                      : 16
+  # Resource limit descriptor 0: bit 7 selects mode-1 (preemptive) core 1
+  # scheduling, the low 7 bits are the ceiling PM will accept from
+  # APT_SetAppCpuTimeLimit. main() asks for 80% before putting the emulator
+  # thread on core 1, so anything below that fails the call outright with
+  # 0xD8E05BF4 and leaves nothing to run the emulator on (issue #6 - the
+  # stock template value of 0x9E means a 30% ceiling). 0xD9 is what Luma's
+  # hbldr hands a .3dsx, which is why that build was unaffected.
+  MaxCpu                        : 0xD9
+  CoreVersion                   : 2
+  HandleTableSize               : 0x200
+  SystemMode                    : 64MB
+  # New3DS only. Core 2 is where the emulator thread goes on that model (see
+  # main()), so this half has to stay on for #6 to remain fixed.
+  CanAccessCore2                : true
+  # Must stay Legacy. 2.2-hotfix also set this to 124MB - matching what hbldr
+  # gives a .3dsx - and that hard-locks a New3DS during startup with no Luma
+  # exception dump (issue #7). Confirmed by two builds off one ELF that
+  # differed in this single exheader byte and nothing else: 124MB locks,
+  # Legacy boots. The cost is that a New3DS reports the Old3DS-sized
+  # application region, so the RAM loop in main() settles a few MB lower than
+  # it otherwise could - which is what 2.0 through 2.2 always did.
+  SystemModeExt                 : Legacy
+  ResourceLimitCategory         : Application
+  MemoryType                    : Application
+  SystemCallAccess:
+    ControlMemory                 : 1
+    QueryMemory                   : 2
+    ExitProcess                   : 3
+    SetProcessAffinityMask        : 4
+    SetProcessIdealProcessor      : 5
+    CreateThread                  : 8
+    ExitThread                    : 9
+    SleepThread                   : 10
+    GetThreadPriority             : 11
+    SetThreadPriority             : 12
+    GetThreadAffinityMask         : 13
+    SetThreadAffinityMask         : 14
+    GetThreadIdealProcessor       : 15
+    SetThreadIdealProcessor       : 16
+    CreateMutex                   : 19
+    ReleaseMutex                  : 20
+    CreateSemaphore               : 21
+    ReleaseSemaphore              : 22
+    CreateEvent                   : 23
+    SignalEvent                   : 24
+    ClearEvent                    : 25
+    CreateTimer                   : 26
+    SetTimer                      : 27
+    CancelTimer                   : 28
+    ClearTimer                    : 29
+    CreateMemoryBlock             : 30
+    MapMemoryBlock                : 31
+    UnmapMemoryBlock              : 32
+    CreateAddressArbiter          : 33
+    ArbitrateAddress              : 34
+    CloseHandle                   : 35
+    WaitSynchronization1          : 36
+    WaitSynchronizationN          : 37
+    DuplicateHandle               : 39
+    GetSystemTick                 : 40
+    GetHandleInfo                 : 41
+    GetSystemInfo                 : 42
+    GetProcessInfo                : 43
+    ConnectToPort                 : 45
+    SendSyncRequest1              : 46
+    SendSyncRequest2              : 47
+    SendSyncRequest3              : 48
+    SendSyncRequest4              : 49
+    SendSyncRequest               : 50
+    GetProcessId                  : 53
+    GetProcessIdOfThread          : 54
+    GetThreadId                   : 55
+    GetResourceLimit              : 56
+    GetResourceLimitLimitValues   : 57
+    GetResourceLimitCurrentValues : 58
+    GetThreadContext              : 59
+    Break                         : 60
+    OutputDebugString             : 61
+  InterruptNumbers:
+  ServiceAccessControl:
+    - "APT:U"
+    - "ac:u"
+    - "am:net"
+    - "boss:U"
+    - "cam:u"
+    - "cecd:u"
+    - "cfg:u"
+    - "csnd:SND"
+    - "dsp::DSP"
+    - "frd:u"
+    - "fs:USER"
+    - "gsp::Gpu"
+    - "gsp::Lcd"
+    - "hid:USER"
+    - "http:C"
+    - "ir:rst"
+    - "ir:u"
+    - "ir:USER"
+    - "mic:u"
+    - "ndm:u"
+    - "news:s"
+    - "nwm::UDS"
+    - "ptm:u"
+    - "ptm:sysm"
+    - "pxi:dev"
+    - "soc:U"
+    - "ssl:C"
+    - "y2r:u"
+    - "ldr:ro"
+  FileSystemAccess:
+    - DirectSdmc
+    - DirectSdmcWrite
+    - CtrNandRo
+    - CtrNandRw
+    - CtrNandRoWrite
+    - CategorySystemApplication
+    - CategoryHardwareCheck
+    - CategoryFileSystemTool
+
+SystemControlInfo:
+  SaveDataSize: 0KB
+  RemasterVersion: 0
+  StackSize: 0x10000
