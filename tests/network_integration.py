@@ -11,13 +11,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200);self.end_headers();self.wfile.write(b'VERDANT_REAL_DOWNLOAD\n')
     def log_message(self,*a):pass
 http=HTTPServer(('0.0.0.0',0),Handler);threading.Thread(target=http.serve_forever,daemon=True).start()
-request('download',f'http://{host}:{http.server_port}/fixture','/root/network-download.txt');jid=str(__import__('guest_integration').serial)
+download_path='/root/network-download-'+str(time.time_ns())+'.txt'
+request('download',f'http://{host}:{http.server_port}/fixture',download_path);jid=str(__import__('guest_integration').serial)
 for _ in range(100):
     status=request('job',jid)
     if status.startswith('exit='):break
     time.sleep(.1)
 assert status.startswith('exit=0'),status
-assert request('read','/root/network-download.txt')=='VERDANT_REAL_DOWNLOAD\n'
+assert request('read',download_path)=='VERDANT_REAL_DOWNLOAD\n'
 http.shutdown();print('PASS guest HTTP download through NAT',flush=True)
 with tempfile.TemporaryDirectory() as t:
     key=Path(t)/'key';subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(key)],check=True)

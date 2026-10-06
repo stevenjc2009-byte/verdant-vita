@@ -2,6 +2,7 @@
 import sys,time
 from pathlib import Path
 base=Path(sys.argv[1]);serial=4000
+current=sys.argv[2] if len(sys.argv)>2 else '0.2.1'
 def request(op,*args):
     global serial
     serial+=1;p=base/(str(serial)+'.part')
@@ -13,11 +14,11 @@ def request(op,*args):
     data=response.read_text();response.unlink();assert data.startswith('OK\n'),data
     return data[3:]
 for platform in ('3ds','vita'):
-    request('sysupdate','check',platform,'0.2.0');job=str(serial);end=time.monotonic()+240
+    request('sysupdate','check',platform,current);job=str(serial);end=time.monotonic()+240
     while time.monotonic()<end:
         output=request('job',job)
         if output.startswith('exit='):break
         time.sleep(1)
-    assert output.startswith('exit=0') and 'Up to date: 0.2.0' in output,output
+    assert output.startswith('exit=0') and 'Up to date: '+current in output,output
     print('PASS real guest verified GitHub HTTPS and correct release channel:',platform,flush=True)
 request('shutdown')

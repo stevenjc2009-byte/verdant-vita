@@ -450,8 +450,9 @@ static void vnet_handle_tcp(const uint8_t *eth, const uint8_t *ip, const uint8_t
         c->seq_us = (uint32_t)plat_us();
         c->ack_them = seq + 1;
         c->last_tick = plat_us();
-        /* Optimistic SYN-ACK: assume connect succeeds; RST later if not. */
-        tcp_send_seg(c, 0x12 /* SYN|ACK */, NULL, 0);
+        /* Wait for the host connect before acknowledging the guest SYN.
+           Otherwise its TLS ClientHello can be acknowledged and discarded
+           by a nonblocking send() while the host socket is still connecting. */
         return;
     }
     if (!c) return;
@@ -468,11 +469,19 @@ static void vnet_handle_tcp(const uint8_t *eth, const uint8_t *ip, const uint8_t
 
     c->last_tick = plat_us();
     if (paylen > 0) {
-        if (c->fd >= 0) send(c->fd, payload, paylen, 0);
-        c->ack_them = seq + paylen;
+        if(c->state!=TCP_ESTABLISHED)return;
+        /* Retransmitted guest bytes must not enter the host TLS stream twice.
+           Acknowledge only bytes accepted by send(), including partial writes. */
+        int32_t delta=(int32_t)(seq-c->ack_them);
+        if(delta>0){tcp_send_seg(c,0x10,NULL,0);return;}
+        int skip=delta<0 ? (int)((uint32_t)(c->ack_them-seq)) : 0;
+        if(skip<paylen && c->fd>=0){
+            int sent=send(c->fd,payload+skip,paylen-skip,0);
+            if(sent>0)c->ack_them+=(uint32_t)sent;
+        }
         tcp_send_seg(c, 0x10 /* ACK */, NULL, 0); /* ack data */
     }
-    if (flags & 0x01 /* FIN */) {
+    if ((flags & 0x01 /* FIN */) && seq+(uint32_t)paylen==c->ack_them) {
         c->ack_them = seq + paylen + 1;
         c->guest_fin_seen = true;
         tcp_send_seg(c, 0x10, NULL, 0);
@@ -541,10 +550,17 @@ static void tcp_poll(void) {
             struct timeval tv = {0,0};
             int r = select(c->fd + 1, NULL, &wfds, NULL, &tv);
             if (err != 0) { tcp_send_seg(c, 0x14 /* RST|ACK */, NULL, 0); tcp_close_slot(c); continue; }
-            if (r > 0 && FD_ISSET(c->fd, &wfds)) c->state = TCP_ESTABLISHED;
+            if (r > 0 && FD_ISSET(c->fd, &wfds)) {
+                c->state = TCP_ESTABLISHED;
+                tcp_send_seg(c, 0x12 /* SYN|ACK */, NULL, 0);
+            }
             continue;
         }
-        if (c->state != TCP_ESTABLISHED) continue;
+        if (c->state != TCP_ESTABLISHED || c->local_fin_sent) continue;
+        /* Backpressure instead of dropping bytes read from the host. Reserve
+           two queue entries for ACK/control traffic from other connections. */
+        int pending=(vnet_pend_head-vnet_pend_tail+VNET_PEND_N)%VNET_PEND_N;
+        if(pending>=VNET_PEND_N-3)continue;
 
         fd_set rfds; FD_ZERO(&rfds); FD_SET(c->fd, &rfds);
         struct timeval tv = {0,0};

@@ -1,6 +1,6 @@
-# GitHub system updater — 0.2.0
+# GitHub system updater — 0.2.1
 
-Update channels are pinned in the service source:
+Update channels are pinned in the service source. Version 0.2.1 includes the network-transport correction and bounded HTTPS retries validated against the live release channels.
 
 | Console | Repository | Stable release asset |
 |---|---|---|
