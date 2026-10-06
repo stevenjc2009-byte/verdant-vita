@@ -1,4 +1,8 @@
-# Verdant Desktop for PS Vita — experimental 0.1
+# Verdant Desktop for PS Vita — experimental 0.2.2
+
+Version 0.2.2 fixes the reported VitaShell installation error **0x8010113D**. All three LiveArea PNGs are now non-interlaced, 8-bit indexed images. The build checks resource dimensions, PNG checksums, palette format and transparency before and after VPK packaging. Versions 0.2.1 and earlier used RGB images and should be replaced with this build for installation.
+
+Reference: [Vita LiveArea asset format guide](https://gist.github.com/hammerill/64411eebf071b93396b7d310ba8d6776), [developer error-code notes](https://gist.github.com/devnoname120/a565bea1b7f38393f220ec34f82ed6ba). The original RGB archive was reproduced as a validation failure; the indexed replacement passes. Actual installation still needs confirmation on the console.
 
 The 3DS build was developed and packaged first. This second target shares the desktop, guest service and RV32 Linux runtime, with a VitaSDK platform adapter. It is a compiled homebrew application, not a replacement for Vita firmware and not native Linux Mint. No physical Vita has been tested.
 

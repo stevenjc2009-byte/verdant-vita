@@ -1,8 +1,8 @@
 # Verdant for PlayStation Vita
 
-This repository publishes the **vita** update channel. Releases use `verdant-vita-update.zip`. Shared source retains both platform backends; this repository's release assets are scoped to PlayStation Vita. See [UPDATES.md](UPDATES.md) for the built-in updater.
+This repository publishes the **vita** update channel. Release 0.2.2 corrects VitaShell installation error 0x8010113D by using indexed LiveArea PNGs. Releases use `verdant-vita-update.zip`. See [VITA.md](VITA.md) and [UPDATES.md](UPDATES.md).
 
-# Verdant Desktop â€” experimental 0.2.1
+# Verdant Desktop â€” experimental 0.2.2 (Vita image-format fix)
 
 An original dark-green desktop for real Linux inside a homebrew application, based on 3DS-CLI 5.3. **This is an experimental build, not a complete Linux Mint port. No physical console has been tested.** See FEATURE-STATUS.md and TEST-RESULTS.md.
 

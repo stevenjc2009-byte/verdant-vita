@@ -95,7 +95,8 @@ $(BUILD)/eboot.bin: $(TARGET).velf
 $(BUILD)/param.sfo:| $(BUILD)
 	$(VITASDK)/bin/vita-mksfoex -s TITLE_ID=$(TITLE_ID) "$(APP_NAME)" $@
 
-$(VPK): $(BUILD)/eboot.bin $(BUILD)/param.sfo $(VITA_ICON) | $(DISTDIR)
+$(VPK): $(BUILD)/eboot.bin $(BUILD)/param.sfo $(VITA_ICON) $(VITA_LIVEAREA)/bg.png $(VITA_LIVEAREA)/startup.png $(VITA_LIVEAREA)/template.xml tools/check_vita_assets.py | $(DISTDIR)
+	python tools/check_vita_assets.py
 	$(VITASDK)/bin/vita-pack-vpk \
 		-s $(BUILD)/param.sfo \
 		-b $(BUILD)/eboot.bin \
@@ -104,6 +105,7 @@ $(VPK): $(BUILD)/eboot.bin $(BUILD)/param.sfo $(VITA_ICON) | $(DISTDIR)
 		-a $(VITA_LIVEAREA)/startup.png=sce_sys/livearea/contents/startup.png \
 		-a $(VITA_LIVEAREA)/template.xml=sce_sys/livearea/contents/template.xml \
 		$@
+	python tools/check_vita_assets.py $@
 
 clean:
 	@echo clean ...

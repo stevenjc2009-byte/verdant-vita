@@ -3,7 +3,7 @@
 import hashlib,json,os,re,ssl,sys,time,urllib.request,zipfile
 from pathlib import Path,PurePosixPath
 
-VERSION='0.2.1'
+VERSION='0.2.2'
 REPOS={'3ds':'stevenjc2009-byte/verdant-3ds','vita':'stevenjc2009-byte/verdant-vita'}
 LIMIT=160*1024*1024
 RUNTIME=Path(os.environ.get('VERDANT_RUNTIME','/mnt/3ds/sd/verdant'))
