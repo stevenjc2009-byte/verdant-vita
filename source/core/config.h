@@ -188,7 +188,10 @@ static inline void cfg_load(Cfg *c) {
 /* Called when the settings page closes and on the exit path, never per
    keypress: an SD write stalls the emulation thread for as long as the card
    takes. */
+/* A restore owns the settings files until the next launch. */
+static bool g_cfg_save_suspended;
 static inline bool cfg_save(const Cfg *c) {
+  if (g_cfg_save_suspended) return true;
   FILE *f = fopen(CFG_PATH, "w");
   if (!f) return false;
 

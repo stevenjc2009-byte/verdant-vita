@@ -3,7 +3,7 @@
 import os,re,sys,time
 from pathlib import Path,PurePosixPath
 
-VERSION='0.3.3'
+VERSION='0.4.0'
 REPOS={'3ds':'stevenjc2009-byte/verdant-3ds','vita':'stevenjc2009-byte/verdant-vita'}
 LIMIT=160*1024*1024
 RUNTIME=Path(os.environ.get('VERDANT_RUNTIME',str(Path(__file__).resolve().parent.parent)))

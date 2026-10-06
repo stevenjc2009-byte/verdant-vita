@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #define PLAT_SD "./"
-#define VU_VERSION "0.3.3"
+#define VU_VERSION "0.4.0"
 static uint64_t clock_us=1000000;
 static uint64_t plat_us(void){return clock_us;}
 static bool vu_exists(const char *path){return access(path,F_OK)==0;}
@@ -17,15 +17,15 @@ static bool vu_exists(const char *path){return access(path,F_OK)==0;}
 static void write_file(const char *name,const char *text){FILE *f=fopen(name,"wb");assert(f);fputs(text,f);fclose(f);}
 int main(void) {
  char tag[48];bool newer;
- assert(vu_json_string("{\"body\":\"a fake \\\"tag_name\\\":\\\"v9.9.9\\\"\",\"nested\":{\"tag_name\":\"v8.0.0\"},\"tag_name\":\"v0.3.3\"}","tag_name",tag,48));assert(!strcmp(tag,"v0.3.3"));
- assert(vu_release_newer("v0.3.4","0.3.3",&newer)&&newer);
- assert(vu_release_newer("v0.3.3","0.3.3",&newer)&&!newer);
- assert(vu_release_newer("v0.3.30","0.3.9",&newer)&&newer);
- for(int i=0;i<5;i++){const char *bad[]={"v-1.2.3","v+1.2.3","v0.3.3beta","v0.3","v0.3.3.2"};assert(!vu_release_newer(bad[i],"0.3.3",&newer));}
+ assert(vu_json_string("{\"body\":\"a fake \\\"tag_name\\\":\\\"v9.9.9\\\"\",\"nested\":{\"tag_name\":\"v8.0.0\"},\"tag_name\":\"v0.4.0\"}","tag_name",tag,48));assert(!strcmp(tag,"v0.4.0"));
+ assert(vu_release_newer("v0.4.1","0.4.0",&newer)&&newer);
+ assert(vu_release_newer("v0.4.0","0.4.0",&newer)&&!newer);
+ assert(vu_release_newer("v0.4.00","0.3.9",&newer)&&newer);
+ for(int i=0;i<5;i++){const char *bad[]={"v-1.2.3","v+1.2.3","v0.4.0beta","v0.3","v0.4.0.2"};assert(!vu_release_newer(bad[i],"0.4.0",&newer));}
  assert(vu_json_false("{\"draft\":false}","draft"));assert(!vu_json_false("{\"draft\":true}","draft"));
  mkdir("verdant",0777);mkdir("verdant/bridge",0777);write_file(VUN_HTTP ".enabled","1");
  VUNativeCheck c={0};assert(vu_native_start(&c)&&c.running);assert(vu_exists(VUN_HTTP ".owner"));
- write_file(VUN_HTTP ".data","{\"tag_name\":\"v0.3.4\",\"draft\":false,\"prerelease\":false}");
+ write_file(VUN_HTTP ".data","{\"tag_name\":\"v0.4.1\",\"draft\":false,\"prerelease\":false}");
  remove(VUN_HTTP ".req");write_file(VUN_HTTP ".res","OK\n");assert(vu_native_poll(&c)&&!c.running&&c.available);
  assert(vu_exists("verdant/update-release.json") && !vu_exists(VUN_HTTP ".owner"));
  assert(vu_native_start(&c));clock_us+=46000000;assert(vu_native_poll(&c)&&!c.running && strstr(c.status,"timed out"));assert(vu_exists(VUN_HTTP ".cancel"));

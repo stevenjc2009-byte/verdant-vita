@@ -153,16 +153,18 @@ int main(void) {
   response(w, "OK\nfirst\nsecond\n");
   assert(!strcmp(w->text, "first\nsecond\n"));
   assert(w->cursor == 13);
-  desktop_input_byte(3);
+  desktop_input_byte(1);desktop_input_byte(3);
   assert(!strcmp(vd.clipboard, w->text));
-  /* File/Edit actions use the actual Notepad menu hit path. */
+  /* File/Edit actions and real Save As browsing dialog. */
   vd.focused=edit;vd_notepad_click(w,w->x+12,w->y+28);assert(w->edit_menu==1);
-  vd_notepad_click(w,w->x+12,w->y+21+22+3*26+8);assert(w->entry_mode==8 && vd.keyboard);
-  const char *savepath="/mnt/vita/ux0/menu-save.txt";for(const char *ch=savepath;*ch;ch++)desktop_input_byte(*ch);desktop_input_byte(13);
-  assert(!strcmp(w->path,savepath) && !strcmp(w->pending_op,"write"));response(w,"OK\nSaved");assert(!strcmp(w->text,"first\nsecond\n"));
-  vd_notepad_click(w,w->x+70,w->y+28);vd_notepad_click(w,w->x+70,w->y+21+22+8);assert(w->edit_all);
-  vd_notepad_click(w,w->x+70,w->y+28);vd_notepad_click(w,w->x+70,w->y+21+22+26+8);assert(!strcmp(vd.clipboard,w->text));
-  desktop_input_byte('Z');assert(!strcmp(w->text,"Z"));desktop_input_byte(1);desktop_input_byte(22);assert(!strcmp(w->text,"first\nsecond\n"));
+  vd_notepad_click(w,w->x+12,w->y+21+22+3*26+8);VDWindow *picker=vd_focus();assert(picker->picker_mode==2 && picker->picker_owner==edit);
+  strcpy(picker->path,PLAT_GUEST_STORAGE);response(picker,"OK\nF menu-save.txt");strcpy(picker->input,"menu-save.txt");
+  vd_picker_click(picker,picker->x+12,picker->y+picker->h-18);assert(!strcmp(picker->pending_op,"exists") && !w->pending);response(picker,"OK\nFILE");assert(picker->picker_overwrite);
+  vd_picker_click(picker,picker->x+25,picker->y+21+90);assert(!picker->used && !strcmp(w->path,PLAT_GUEST_STORAGE "/menu-save.txt"));response(w,"OK\nSaved");assert(!strcmp(w->text,"first\nsecond\n"));
+  vd.focused=edit;vd_notepad_click(w,w->x+70,w->y+28);vd_notepad_click(w,w->x+70,w->y+21+22+2*26+8);assert(w->edit_all);
+  vd_notepad_click(w,w->x+70,w->y+28);vd_notepad_click(w,w->x+70,w->y+21+22+3*26+8);assert(!strcmp(vd.clipboard,w->text));
+  desktop_input_byte('Z');assert(!strcmp(w->text,"Z"));desktop_input_byte(26);assert(!strcmp(w->text,"first\nsecond\n"));desktop_input_byte(25);assert(!strcmp(w->text,"Z"));desktop_input_byte(1);desktop_input_byte(22);assert(!strcmp(w->text,"first\nsecond\n"));
+  desktop_input_byte('!');vd_editor_intent(w,1);assert(w->editor.confirm==1);vd_notepad_click(w,w->x+180,w->y+21+93);assert(!w->editor.confirm&&strchr(w->text,'!'));vd_editor_intent(w,3);assert(w->editor.confirm==3&&w->used);w->editor.confirm=0;
 #ifdef PLAT_VITA
   vd.keyboard=true;vd_keyboard_layout();int a=-1,b=-1;for(int k=0;k<vk_count;k++){if(vk_buttons[k].code=='a')a=k;if(vk_buttons[k].code=='s')b=k;}assert(a>=0&&b>=0);
   w->text[0]=0;w->cursor=0;VKButton ka=vk_buttons[a],kb=vk_buttons[b];
@@ -265,6 +267,7 @@ int main(void) {
   vd.px = 240; vd.py = 150; vd.dirty = false; vd.pointer_dirty = true;
   vd.last_clock = plat_us(); vd.last_render=0;vd_render(); vd_cursor_restore();
   assert(!memcmp(scene, display.base, display_bytes));
+  memcpy(scene,display.base,display_bytes);vd.drag=edit;vd.outline_drag=true;vd.drag_x=150;vd.drag_y=90;vd.drag_w=180;vd.drag_h=120;vd.dirty=false;vd.pointer_dirty=true;vd.last_render=0;vd_render();assert(vd_outline.count>0);vd_cursor_restore();vd_outline_restore();assert(!memcmp(scene,display.base,display_bytes));vd.drag=-1;vd.dirty=true;
   free(scene);
   vd.focused = edit;assert(!strcmp(vd_names[VD_EDIT],"Notepad"));
   vd.windows[edit].x = -200;
@@ -283,23 +286,33 @@ int main(void) {
   vd.dirty=true;vd.last_render=0;vd_render();
   vd_change_scale(-50);assert(vd.ui_scale==150);
   vd.focused=settings;vd.dirty=true;vd.last_render=0;vd_render();capture_desktop("settings-150.ppm");
+  vd.calibrating=true;vd.calibration_step=vd.calibration_sum_x=vd.calibration_sum_y=0;vd.dirty=true;vd.last_render=0;vd_render();capture_desktop("calibration-150.ppm");
+  for(int step=0;step<5;step++){int x,y;vd_calibration_target(step,&x,&y);plat_input_t tap={.ptr_tapped=true,.ptr_down=true,.ptr_x=x*PLAT_TERM_W/VD_W-6,.ptr_y=y*(PLAT_TERM_H+PLAT_PANEL_H)/VD_H-PLAT_TERM_H+4};vd_calibration_input(&tap);}assert(!vd.calibrating&&vd.touch_offset_x==6&&vd.touch_offset_y==-4);vd.touch_offset_x=vd.touch_offset_y=0;
+  vd.focused=edit;VDWindow *note=&vd.windows[edit];note->editor.confirm=0;note->edit_menu=2;note->editor.lines=true;note->editor.zoom=1;vd.dirty=true;vd.last_render=0;vd_render();capture_desktop("notepad-edit-150.ppm");note->edit_menu=0;
+
   vd_change_scale(-50);assert(vd.ui_scale==100);
   vd_performance_parse("CPU|33.5\nMEM|98304|32768\nNET|4.5|1.5\nDISK|2.0|3.0|100000|40000\nPROCESSES|2\nPROC|1|0.5|100|init\n");
   assert(vd_performance.memory_total==98304 && vd_performance.count==2);
   int tasks=vd_new(VD_TASKS);VDWindow *manager=&vd.windows[tasks];
   strcpy(manager->text,"PROC|1|0.5|100|init\nPROC|2|-1|200|bash\n");
   manager->task_tab=0;vd.dirty=true;vd.last_render=0;vd_render();
-  manager->task_tab=1;vd_change_scale(50);
+  manager->task_tab=2;vd.dirty=true;vd.last_render=0;vd_render();capture_desktop("diagnostics-100.ppm");manager->task_tab=1;vd_change_scale(50);
   for(int category=0;category<5;category++) { manager->task_category=category;vd.dirty=true;vd.last_render=0;vd_render();
     if(category==0)capture_desktop("tasks-150.ppm"); }
 #endif
   vd_change_scale(150-vd.ui_scale);int games=vd_new(VD_GAMES);assert(games>=0);VDWindow *game=&vd.windows[games];
-  for(int kind=0;kind<=3;kind++){vg_start(&game->game,kind,12);vd.dirty=true;vd.last_render=0;vd_render();char name[64];snprintf(name,sizeof(name),"games-%d-150.ppm",kind);capture_desktop(name);}
+  for(int kind=0;kind<=7;kind++){vg_start(&game->game,kind,12);vd.dirty=true;vd.last_render=0;vd_render();char name[64];snprintf(name,sizeof(name),"games-%d-150.ppm",kind);capture_desktop(name);}
   vd_games_install();assert(plat_game_kind(PLAT_GUEST_STORAGE "/verdant/games/Snake.vgame")==1);
   assert(plat_game_kind(PLAT_GUEST_STORAGE "/../bad.vgame")==0);vd_close(games);
   int updater=vd_new(VD_UPDATER);vd.focused=updater;vd_change_scale(50);
   vd.dirty=true;vd.last_render=0;vd_render();capture_desktop("updater-150.ppm");
-  vd_shutdown();
+  /* Restored disk settings must survive stale UI state and shutdown. */
+  g_cfg_save_suspended=true;
+  FILE *restored=fopen(PLAT_SD "verdant/preferences.cfg","wb");assert(restored);fputs("restored-marker",restored);fclose(restored);
+  restored=fopen(CFG_PATH,"wb");assert(restored);fputs("engine-marker",restored);fclose(restored);
+  vd_save_preferences();assert(cfg_save(&g_cfg));vd_shutdown();
+  char marker[64]={0};restored=fopen(PLAT_SD "verdant/preferences.cfg","rb");assert(restored);assert(fread(marker,1,63,restored)>0);fclose(restored);assert(!strcmp(marker,"restored-marker"));
+  memset(marker,0,sizeof(marker));restored=fopen(CFG_PATH,"rb");assert(restored);assert(fread(marker,1,63,restored)>0);fclose(restored);assert(!strcmp(marker,"engine-marker"));
   plat_exit();
   return 0;
 }

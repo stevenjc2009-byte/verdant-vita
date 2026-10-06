@@ -128,8 +128,16 @@ def dispatch(op, a, rid):
         name=f'image-{rid}.bin'
         shutil.copyfile(path,BASE/name)
         return name
+    if op == 'exists':
+        target=check_path(a[0]);return 'DIRECTORY' if target.is_dir() else 'FILE' if target.is_file() else 'OTHER' if target.exists() else 'MISSING'
     if op == 'write':
-        atomic(check_mutable(a[0]), a[1]); return 'Saved'
+        target=check_mutable(a[0])
+        if target.is_file():
+            backups=BASE.parent/'backups'/'documents';backups.mkdir(parents=True,exist_ok=True)
+            stem=target.name[:80]+'-'+str(time.time_ns())
+            backup=backups/(stem+'.txt');shutil.copyfile(target,backup)
+            atomic(str(backup)+'.origin',str(target))
+        atomic(target, a[1]); return 'Saved'
     if op in ('copy', 'move'):
         src, dst = check_mutable(a[0]), check_mutable(a[1])
         if dst.exists():
@@ -235,7 +243,8 @@ def dispatch(op, a, rid):
 def tick():
     active=False
     # Native HTTPS has its own host-http.req mailbox in this directory.
-    requests=(p for p in BASE.glob('*.req') if p.stem.isascii() and p.stem.isdigit())
+    with os.scandir(BASE) as entries:
+        requests=[BASE/entry.name for entry in entries if entry.name.endswith('.req') and entry.name[:-4].isascii() and entry.name[:-4].isdigit()]
     for req in sorted(requests, key=lambda p: int(p.stem))[:8]:
         active=True
         rid = req.stem
@@ -271,6 +280,7 @@ def tick():
         except BlockingIOError: pass
         except OSError: stop_session(key.data)
     for job in jobs.values():
+        if job['out'].closed:continue
         if (job.get('updater') or job.get('currency')) and job['process'].poll() is None and time.monotonic()-job['started']>job['timeout']:
             os.killpg(job['process'].pid,signal.SIGTERM)
             job['out'].write(b'\nUpdate timed out. Check Vita Wi-Fi and system date/time.\n');job['out'].flush()
@@ -292,7 +302,7 @@ def main():
     try:
         while True:
             # Quiet shells do not need a permanent 50 Hz Python polling loop.
-            time.sleep(0.02 if tick() else 0.10)
+            time.sleep(0.02 if tick() else 0.10 if sessions or any(job["process"].poll() is None for job in jobs.values()) else 0.25)
     finally:
         for sid in list(sessions): stop_session(sid)
         (BASE / 'ready').unlink(missing_ok=True)

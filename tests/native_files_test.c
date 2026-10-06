@@ -56,5 +56,12 @@ int main(void){
  for(unsigned i=10;i<18;i++){char body[24];snprintf(body,sizeof(body),"queued %u",i);assert(plat_files_request(i,"write","/mnt/vita/ux0/Folder/queued.txt",body));}
  vf_cleanup();for(unsigned i=10;i<18;i++)wait_result(i,"OK\nSaved");
  assert(vf_execute("read","/mnt/vita/ux0/Folder/queued.txt",NULL,response,sizeof(response)) && !strcmp(response,"queued 17"));
+ char msg[15001];FILE *prefs=fopen("verdant/preferences.cfg","wb");assert(prefs);fputs("touch_x=7\n",prefs);fclose(prefs);
+ assert(vf_execute("settingsbackup","/mnt/vita/ux0/verdant",NULL,msg,sizeof(msg)));
+ prefs=fopen("verdant/preferences.cfg","wb");fputs("touch_x=0\n",prefs);fclose(prefs);
+ assert(vf_execute("settingsrestore","/mnt/vita/ux0/verdant",NULL,msg,sizeof(msg)));assert(vf_execute("read","/mnt/vita/ux0/verdant/preferences.cfg",NULL,msg,sizeof(msg))&&!strcmp(msg,"touch_x=7\n"));
+ char backup_name[100];prefs=fopen("verdant/backups/latest-settings.txt","rb");assert(prefs);assert(fgets(backup_name,sizeof(backup_name),prefs));fclose(prefs);backup_name[strcspn(backup_name,"\n")]=0;char badbackup[300];snprintf(badbackup,sizeof(badbackup),"verdant/backups/%s/preferences.cfg",backup_name);prefs=fopen(badbackup,"wb");fputs("corrupt",prefs);fclose(prefs);assert(!vf_execute("settingsrestore","/mnt/vita/ux0/verdant",NULL,msg,sizeof(msg)));assert(vf_execute("read","/mnt/vita/ux0/verdant/preferences.cfg",NULL,msg,sizeof(msg))&&!strcmp(msg,"touch_x=7\n"));
+ assert(vf_execute("list","/mnt/vita/ux0/verdant/backups/documents",NULL,msg,sizeof(msg))&&strstr(msg,".txt"));
+ vf_read=0;vf_write=2;vf_queue[0]=(VFRequest){.op="copy",.path="/mnt/vita/ux0/large.bin",.data="/mnt/vita/ux0/dest.bin"};vf_queue[1]=(VFRequest){.op="read",.path="/mnt/vita/ux0/notes.txt"};assert(vf_pick(0)==1&&vf_pick(4)==0);strcpy(vf_queue[1].path,"/mnt/vita/ux0/dest.bin");assert(vf_pick(0)==0);vf_read=vf_write=0;
  puts("Native Vita storage: protected paths, normalization, sorting, text/UTF-8 limits, asynchronous results, FIFO drain and failed-start fallback passed without Linux.");
 }

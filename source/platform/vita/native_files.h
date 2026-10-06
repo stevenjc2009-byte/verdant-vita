@@ -34,10 +34,10 @@ static bool vf_supported(const char *op,const char *a,const char *b) {
  char path[768],dest[768];if(!vf_path(a,path,sizeof(path)))return false;
  if(!strcmp(op,"move"))return vf_path(b,dest,sizeof(dest));
  if(!strcmp(op,"copy")){struct stat st;return vf_path(b,dest,sizeof(dest)) && !stat(path,&st) && S_ISREG(st.st_mode);}
- return !strcmp(op,"list") || !strcmp(op,"read") || !strcmp(op,"write") || !strcmp(op,"mkdir");
+ return !strcmp(op,"exists") || !strcmp(op,"settingsbackup") || !strcmp(op,"settingsrestore") || !strcmp(op,"list") || !strcmp(op,"read") || !strcmp(op,"write") || !strcmp(op,"mkdir");
 }
 typedef struct {char name[256];bool directory;} VFEntry;
-static int vf_game_kind(const char *guest){char path[768],line[64];int kind=0;if(!vf_path(guest,path,sizeof(path)))return 0;FILE *f=fopen(path,"rb");if(!f)return 0;bool read=fgets(line,sizeof(line),f)!=NULL;fclose(f);if(read && sscanf(line,"VERDANT-GAME %d",&kind)==1 && kind>=1 && kind<=3)return kind;return 0;}
+static int vf_game_kind(const char *guest){char path[768],line[64];int kind=0;if(!vf_path(guest,path,sizeof(path)))return 0;FILE *f=fopen(path,"rb");if(!f)return 0;bool read=fgets(line,sizeof(line),f)!=NULL;fclose(f);if(read && sscanf(line,"VERDANT-GAME %d",&kind)==1 && kind>=1 && kind<=7)return kind;return 0;}
 static int vf_compare(const VFEntry *a,const VFEntry *b) {
  if(a->directory!=b->directory)return a->directory?-1:1;
  int result=strcasecmp(a->name,b->name);return result?result:strcmp(a->name,b->name);
@@ -48,9 +48,14 @@ static bool vf_utf8(const unsigned char *p) {
  for(int i=0;i<n;i++)if(!*p || (*p++&0xc0)!=0x80)return false;
  }return true;
 }
+static bool vf_execute(const char *op,const char *a,const char *b,char *response,size_t limit);
+#include "backups.h"
 static bool vf_execute(const char *op,const char *a,const char *b,char *response,size_t limit) {
  char path[768];response[0]=0;
  if(!vf_path(a,path,sizeof(path))){snprintf(response,limit,"Unsupported or reserved storage path");return false;}
+ if(!strcmp(op,"exists")){struct stat st;if(!stat(path,&st)){snprintf(response,limit,"%s",S_ISDIR(st.st_mode)?"DIRECTORY":S_ISREG(st.st_mode)?"FILE":"OTHER");return true;}if(errno==ENOENT){snprintf(response,limit,"MISSING");return true;}goto error;}
+ if(!strcmp(op,"settingsbackup"))return vf_settings_backup(response,limit);
+ if(!strcmp(op,"settingsrestore"))return vf_settings_restore(response,limit);
  if(!strcmp(op,"list")) {
   DIR *dir=opendir(path);if(!dir)goto error;
   VFEntry *rows=calloc(128,sizeof(*rows));if(!rows){closedir(dir);goto error;}int count=0;struct dirent *entry;
@@ -89,6 +94,7 @@ static bool vf_execute(const char *op,const char *a,const char *b,char *response
   }
   if(!stat(path,&st) && !S_ISREG(st.st_mode)){snprintf(response,limit,"Choose a regular text file, not a directory");return false;}
   if(!stat(part,&st)){snprintf(response,limit,"An unfinished save exists; recover or rename the .verdant-save-part file");return false;}
+  if(!vf_document_snapshot(path)){snprintf(response,limit,"Previous document backup failed; save cancelled");return false;}
   FILE *f=fopen(part,"wb");if(!f)goto error;
   bool ok=fwrite(b,1,strlen(b),f)==strlen(b) && !fflush(f);if(fclose(f))ok=false;
   if(!ok){remove(part);goto error;}

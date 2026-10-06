@@ -462,6 +462,7 @@ void plat_http_start(void);
 void plat_http_stop(void);
 typedef struct {
   int cpu_mhz, gpu_mhz, cpu_valid, cores[4], active_mask, display_core;
+  int worker_valid[5],worker_core[5],worker_status[5],file_queue;unsigned long long worker_clock[5];
   int memory_valid, free_user, free_cdram, heap_used, heap_total;
   int wifi_state, signal; unsigned long long storage_total, storage_free;
 } plat_performance_t;

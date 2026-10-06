@@ -39,6 +39,8 @@
 #include "setup.h"
 #include "calculator.h"
 #include "games.h"
+#include "editor.h"
+#include "profiler.h"
 #ifdef PLAT_VITA
 #include "native_update.h"
 #endif
@@ -73,7 +75,9 @@ typedef struct {
   uint64_t job_tick;
   int entry_mode, image_w, image_h, cursor;
   int task_tab, task_category, edit_menu; bool edit_all; uint64_t performance_tick;
-  VCState calc; VGState game;
+  VCState calc; VGState game; VEState editor;
+  int picker_owner,picker_mode;bool picker_overwrite;char picker_target[512];uint32_t save_hash;
+  uint64_t update_started,update_activity;uint32_t update_hash;
 #ifdef PLAT_VITA
   VUNativeCheck update_check;
 #endif
@@ -88,7 +92,9 @@ static struct {
       ctrl, alt, symbols, cut, recovery, quitting, resizing;
   bool auto_update, update_checked;
   bool pointer_dirty, touch_active, caps_lock, relative_was_down;
-  int ui_scale;
+  int ui_scale,touch_offset_x,touch_offset_y,calibration_step,calibration_sum_x,calibration_sum_y,calibration_min_x,calibration_max_x,calibration_min_y,calibration_max_y;
+  bool calibrating,keyboard_large,outline_drag,picker_build;
+  int drag_x,drag_y,drag_w,drag_h;
   int workspace, focused, px, py, drag, drag_dx, drag_dy, pan_x, pan_y,
       wallpaper;
   int select_start, select_end;
@@ -260,7 +266,7 @@ static unsigned vd_request(VDWindow *w, const char *op, const char *a,
   return id;
 }
 static void vd_save_preferences(void) {
-  if (vd.recovery)
+  if (vd.recovery || g_cfg_save_suspended)
     return;
   char temp[256];
   snprintf(temp, sizeof(temp), PLAT_SD "verdant/preferences.part");
@@ -268,8 +274,8 @@ static void vd_save_preferences(void) {
   if (!f)
     return;
   fprintf(f,
-          "joined=%d\ntouchpad=%d\nwallpaper=%d\nworkspace=%d\nbookmark=%s\nui_scale=%d\n",
-          vd.joined, vd.touchpad, vd.wallpaper, vd.workspace, vd.bookmark, VD_SCALE);
+          "joined=%d\ntouchpad=%d\nwallpaper=%d\nworkspace=%d\nbookmark=%s\nui_scale=%d\ntouch_x=%d\ntouch_y=%d\nkeyboard_large=%d\noutline_drag=%d\n",
+          vd.joined, vd.touchpad, vd.wallpaper, vd.workspace, vd.bookmark, VD_SCALE,vd.touch_offset_x,vd.touch_offset_y,vd.keyboard_large,vd.outline_drag);
   if (!fclose(f))
     rename(temp, PLAT_SD "verdant/preferences.cfg");
   cfg_save(&g_cfg);
@@ -293,6 +299,11 @@ static void vd_currency_parse(VDWindow *w,const char *payload) {
  }
  snprintf(c->rates_date,sizeof(c->rates_date),"%.15s",stamp);strcpy(c->rates_status,"Reference rates (cached)");
 }
+static void vd_editor_intent(VDWindow *w,int action);
+static void vd_editor_continue(VDWindow *w,int action);
+static void vd_editor_picker(VDWindow *w,bool save);
+static bool vd_picker_click(VDWindow *w,int x,int y);
+static bool vd_picker_commit(VDWindow *w,const char *path);
 static int vd_new(int app) {
   if(app==VD_UPDATER) for(int i=0;i<VD_MAX;i++) {
     VDWindow *w=&vd.windows[i];
@@ -313,12 +324,12 @@ static int vd_new(int app) {
   VDWindow *w = &vd.windows[slot];
   memset(w, 0, sizeof(*w));
   w->used = true;
-  w->app = app;
+  w->app = app;w->picker_owner=-1;w->editor.clean=ve_hash("");w->editor.zoom=1;
   w->workspace = vd.workspace;
   w->session = -1;
   w->w = VD_W > 500 ? 500 : 300;
   w->h = 190;
-  if (app == VD_SETTINGS || app == VD_TASKS || app == VD_CALC || app == VD_UPDATER || app == VD_GAMES) { w->w = VD_W - 24; w->h = VD_H - 58; }
+  if (app == VD_EDIT || app == VD_SETTINGS || app == VD_TASKS || app == VD_CALC || app == VD_UPDATER || app == VD_GAMES) { w->w = VD_W - 24; w->h = VD_H - 58; }
   w->x = VD_PANEL_X + 6 + (slot % 3) * 6;
   w->y = 28 + (slot % 3) * 8;
   snprintf(w->title, sizeof(w->title), "%s", vd_names[app]);
@@ -353,12 +364,12 @@ static int vd_new(int app) {
       strcpy(w->text, "Four terminals maximum. Close one to start another.");
     }
   } else if(app==VD_GAMES){mkdir(PLAT_SD "verdant/games",0777);strcpy(w->path,PLAT_GUEST_STORAGE "/verdant/games");}
-  else if (app == VD_FILES)
+  else if (app == VD_FILES && !vd.picker_build)
     vd_request(w, "list", w->path, NULL, NULL, NULL);
   else if (app == VD_TASKS)
     vd_request(w, "performance", NULL, NULL, NULL, NULL);
   else if (app == VD_EDIT) {
-    strcpy(w->path, "/root/notes.txt");
+    strcpy(w->path, PLAT_GUEST_STORAGE "/notes.txt");
     strcpy(w->text, "");
   } else if (app == VD_CALC) {
     vc_init(&w->calc);
@@ -411,11 +422,7 @@ static int vd_new(int app) {
            "private LAN or "
            "SSH tunnel.\nTouch image to send left-click; keyboard types.");
   } else if (app == VD_BACKUP)
-    strcpy(w->text, "Back up /root documents using the button below.\nFull "
-                    "disk-image backups must "
-                    "be taken offline.\nUse tools/manage_install.py on your "
-                    "computer.\nRecovery: "
-                    "rename the preferences file while closed.");
+    strcpy(w->text,"Settings export: verified preferences, engine and updater settings.\nRestore: tap twice; applies on relaunch.\nBrowse: saved settings and previous document copies.\nDocument copies are made before replacing an existing SD text file.\nLinux /root: archive of Linux documents.\nRecovery: hold B while launching for the boot console.\nInterrupted updates recover on relaunch.\nFull Linux disk backups must be taken while Verdant is closed.");
   else if (app == VD_UPDATER) {
     strcpy(w->text,
            "GitHub system updater\nCheck: latest stable release\nUpdate: "
@@ -426,6 +433,9 @@ static int vd_new(int app) {
 }
 static void vd_close(int idx) {
   VDWindow *w = &vd.windows[idx];
+  if(w->app==VD_EDIT && ve_hash(w->text)!=w->editor.clean){vd_editor_intent(w,3);return;}
+  for(int i=0;i<VD_MAX;i++)if(vd.windows[i].used && vd.windows[i].picker_owner==idx)vd.windows[i].picker_owner=-1;
+  ve_free(&w->editor);
 #ifdef PLAT_VITA
   if(w->app==VD_UPDATER)vu_native_cancel(&w->update_check);
 #endif
@@ -525,48 +535,30 @@ static bool desktop_input_byte(char c) {
   if (s == w->text) {
     if (w->cursor < 0 || w->cursor > (int)n)
       w->cursor = n;
-    if (c == 19) {
-      vd_request(w, "write", w->path, w->text, NULL, NULL);
-      return true;
-    }
-    if(c==1){w->edit_all=true;vd.dirty=true;return true;}
-    if(c==24){snprintf(vd.clipboard,sizeof(vd.clipboard),"%s",w->text);w->text[0]=0;w->cursor=0;w->edit_all=false;vd.dirty=true;return true;}
-    if (c == 3) {
-      snprintf(vd.clipboard, sizeof(vd.clipboard), "%s", w->text);
-      vd_notice("Copied editor text");
-      return true;
-    }
-    if (c == 22) {
-      if(w->edit_all){s[0]=0;n=0;w->cursor=0;w->edit_all=false;}
-      size_t len = strlen(vd.clipboard);
-      if (n + len < max) {
-        memmove(s + w->cursor + len, s + w->cursor, n - w->cursor + 1);
-        memcpy(s + w->cursor, vd.clipboard, len);
-        w->cursor += len;
-      }
-      vd.dirty = true;
-      return true;
-    }
-    if(w->edit_all && (c==127 || c==8 || c=='\r' || c=='\n' || (unsigned char)c>=32)){s[0]=0;n=0;w->cursor=0;w->edit_all=false;}
-    if (c == 127 || c == 8) {
-      if (w->cursor) {
-        memmove(s + w->cursor - 1, s + w->cursor, n - w->cursor + 1);
-        w->cursor--;
-      }
-    } else if (c == '\r' || c == '\n' || (unsigned char)c >= 32) {
-      if (n + 1 < max) {
-        memmove(s + w->cursor + 1, s + w->cursor, n - w->cursor + 1);
-        s[w->cursor++] = c == '\r' ? '\n' : c;
-      }
-    }
-    vd.dirty = true;
-    return true;
+    VEState *e=&w->editor;int a,b;ve_bounds(e,(int)n,&a,&b);
+    if(w->edit_all){a=0;b=n;e->anchor=a;e->end=b;}
+    if(c==19){w->save_hash=ve_hash(s);vd_request(w,"write",w->path,s,NULL,NULL);return true;}
+    if(c==26||c==25){ve_history(e,s,&w->cursor,c==25);w->edit_all=false;vd.dirty=true;return true;}
+    if(c==1){e->anchor=0;e->end=n;w->edit_all=true;vd.dirty=true;return true;}
+    if(c==3||c==24){if(a!=b){memcpy(vd.clipboard,s+a,b-a);vd.clipboard[b-a]=0;if(c==24)ve_insert(e,s,&w->cursor,max,"",plat_us(),true);}else vd_notice("Select text to copy");w->edit_all=false;vd.dirty=true;return true;}
+    if(c==22){if(!ve_insert(e,s,&w->cursor,max,vd.clipboard,plat_us(),true))vd_notice("Paste exceeds document limit");w->edit_all=false;vd.dirty=true;return true;}
+    if(c==127||c==8)ve_delete(e,s,&w->cursor,max,false,plat_us());
+    else if(c=='\r'||c=='\n'||(unsigned char)c>=32){char data[2]={c=='\r'?'\n':c,0};ve_insert(e,s,&w->cursor,max,data,plat_us(),false);}
+    w->edit_all=false;vd.dirty=true;return true;
   }
   if (c == 127 || c == 8) {
     if (n)
       s[n - 1] = 0;
   } else if (c == '\r' || c == '\n') {
     if (w->entry_mode) {
+      if(w->entry_mode==12){w->entry_mode=0;vd.keyboard=false;vd.dirty=true;return true;}
+      if(w->app==VD_EDIT && w->entry_mode>=9){
+        VEState *e=&w->editor;int mode=w->entry_mode;w->entry_mode=0;
+        if(mode==9){snprintf(e->find,sizeof(e->find),"%.127s",s);if(!ve_find(e,w->text,&w->cursor))vd_notice("Text not found");}
+        else if(mode==10){snprintf(e->find,sizeof(e->find),"%.127s",s);s[0]=0;w->entry_mode=11;vd_notice("Replacement text, then Enter");return true;}
+        else {snprintf(e->replacement,sizeof(e->replacement),"%.127s",s);int count=ve_replace_all(e,w->text,&w->cursor,sizeof(w->text),plat_us());vd_notice(count<0?"Replacement exceeds document limit":count?"Replaced matches":"No matches");}
+        s[0]=0;vd.keyboard=false;w->edit_all=false;vd.dirty=true;return true;
+      }
       if(w->app==VD_EDIT && !s[0]){vd_notice("Enter a full file path");return true;}
       if (strlen(s) >= sizeof(w->path)) {
         vd_notice("Path too long");
@@ -590,7 +582,7 @@ static bool desktop_input_byte(char c) {
       w->entry_mode = 0;
       s[0] = 0;
       if(w->app==VD_EDIT && mode==7)vd_request(w,"read",w->path,NULL,NULL,NULL);
-      if(w->app==VD_EDIT && mode==8)vd_request(w,"write",w->path,w->text,NULL,NULL);
+      if(w->app==VD_EDIT && mode==8){w->save_hash=ve_hash(w->text);vd_request(w,"write",w->path,w->text,NULL,NULL);}
       if (mode == 6)
         strcpy(w->input, w->previous_input);
       vd.keyboard = false;
@@ -619,14 +611,14 @@ static void vd_navigation(int k) {
   if (!w)
     return;
   if (w->app == VD_EDIT && !w->entry_mode) {
-    w->edit_all=false;
+    w->edit_all=false;w->editor.selecting=false;
     int n = strlen(w->text), pos = w->cursor;
     if (pos < 0 || pos > n)
       pos = n;
     if (k == 0 && pos > 0)
-      pos--;
+      pos=ve_previous(w->text,pos);
     else if (k == 3 && pos < n)
-      pos++;
+      pos=ve_next(w->text,pos);
     else if (k == 4) {
       while (pos > 0 && w->text[pos - 1] != '\n')
         pos--;
@@ -665,7 +657,7 @@ static void vd_navigation(int k) {
         w->scroll--;
     } else if (k == 7)
       w->scroll++;
-    w->cursor = pos;
+    w->cursor = pos;w->editor.anchor=w->editor.end=pos;
     vd.dirty = true;
     return;
   }
@@ -760,8 +752,8 @@ static void vd_poll_bridge(void) {
         bool changed=true;
         unsigned completed = w->pending;
         w->pending = 0;
-        if (!ok)
-          vd_notice(payload);
+        if (!ok){w->editor.after_save=0;vd_notice(payload);}
+        else if(w->app==VD_FILES && w->picker_mode && !strcmp(w->pending_op,"exists")){if(!strcmp(payload,"MISSING"))vd_picker_commit(w,w->picker_target);else if(!strcmp(payload,"FILE"))w->picker_overwrite=true;else vd_notice("Choose a regular file, not a folder or device");}
         else if (!strcmp(w->pending_op, "download") ||
                  !strcmp(w->pending_op, "vnc") ||
                  !strcmp(w->pending_op, "sysupdate") ||
@@ -786,12 +778,13 @@ static void vd_poll_bridge(void) {
           if(strcmp(w->pending_op,"job"))vd_notice("Complete");
           if(w->app==VD_CALC && !strcmp(w->pending_op,"job"))vd_currency_parse(w,payload);
           if (!strcmp(w->pending_op, "performance")) vd_performance_parse(payload);
-          if (!strcmp(w->pending_op, "read"))
-            w->cursor = strlen(w->text);
+          if (!strcmp(w->pending_op, "read")){w->cursor = strlen(w->text);ve_free(&w->editor);w->editor.clean=ve_hash(w->text);w->editor.anchor=w->editor.end=w->cursor;w->edit_all=false;}
           if (!strcmp(w->pending_op, "job") && strncmp(payload, "running", 7))
             w->job = 0;
         } else {
           vd_notice(payload);
+          if(w->app==VD_BACKUP)snprintf(w->text,sizeof(w->text),"%s",payload);
+          if(w->app==VD_EDIT && !strcmp(w->pending_op,"write")){w->editor.clean=w->save_hash;int action=w->editor.after_save;w->editor.after_save=0;if(action && ve_hash(w->text)==w->editor.clean)vd_editor_continue(w,action);}
           if (w->app == VD_FILES)
             vd_request(w, "list", w->path, NULL, NULL, NULL);
         }
@@ -927,6 +920,9 @@ static void vd_terminal_draw(VDWindow *w, int x, int y, int width, int height) {
             vd_rect(x + c * cw + xx * z, y + r * ch + yy * z, z, z, fg);
     }
 }
+static void vd_calibration_target(int step,int *x,int *y){static const int tx[]={20,80,80,20,50},ty[]={20,20,80,80,50};*x=VD_W*tx[step]/100;*y=VD_H*ty[step]/100;}
+static void vd_calibration_draw(void){vd_rect(0,0,VD_W,VD_H,VD_BG);vd_label(10,10,"Touch calibration: tap the centre of each target",VD_TEXT_COLOR,VD_W-20);vd_label(10,27,PLAT_BACK_LABEL ": cancel / tap Reset to clear offsets",VD_ACCENT,VD_W-20);int x,y;vd_calibration_target(vd.calibration_step,&x,&y);vd_rect(x-14,y-1,29,3,VD_ACCENT);vd_rect(x-1,y-14,3,29,VD_ACCENT);char text[32];snprintf(text,sizeof(text),"Target %d / 5",vd.calibration_step+1);vd_label(10,VD_H-25,text,VD_ACCENT,180);vd_button(VD_W-90,VD_H-26,80,"Reset");}
+static void vd_calibration_input(const plat_input_t *in){if(in->down&PLAT_BTN_B){vd.calibrating=false;vd.dirty=true;return;}if(!in->ptr_tapped)return;int rawx=in->ptr_x,rawy=in->ptr_y+PLAT_TERM_H;int x=rawx*VD_W/PLAT_TERM_W,y=rawy*VD_H/(PLAT_TERM_H+PLAT_PANEL_H);if(x>=VD_W-90&&y>=VD_H-30){vd.touch_offset_x=vd.touch_offset_y=0;vd.calibrating=false;vd_save_preferences();vd_notice("Touch offsets reset");return;}int tx,ty;vd_calibration_target(vd.calibration_step,&tx,&ty);int dx=tx*PLAT_TERM_W/VD_W-rawx,dy=ty*(PLAT_TERM_H+PLAT_PANEL_H)/VD_H-rawy;if(abs(dx)>80||abs(dy)>80){vd_notice("Tap close to the target centre");return;}if(!vd.calibration_step){vd.calibration_min_x=vd.calibration_max_x=dx;vd.calibration_min_y=vd.calibration_max_y=dy;}if(dx<vd.calibration_min_x)vd.calibration_min_x=dx;if(dx>vd.calibration_max_x)vd.calibration_max_x=dx;if(dy<vd.calibration_min_y)vd.calibration_min_y=dy;if(dy>vd.calibration_max_y)vd.calibration_max_y=dy;vd.calibration_sum_x+=dx;vd.calibration_sum_y+=dy;if(++vd.calibration_step==5){int ox=vd.calibration_sum_x/5,oy=vd.calibration_sum_y/5;if(abs(ox)<=40&&abs(oy)<=40&&vd.calibration_max_x-vd.calibration_min_x<=24&&vd.calibration_max_y-vd.calibration_min_y<=24){vd.touch_offset_x=ox;vd.touch_offset_y=oy;vd_notice("Touch calibration saved");}else vd_notice("Inconsistent touch offsets; retry calibration");vd.calibrating=false;vd_save_preferences();}vd.dirty=true;}
 /* Settings cards share their geometry with hit testing. */
 static void vd_change_scale(int delta) {
 #ifdef PLAT_VITA
@@ -939,7 +935,7 @@ static void vd_change_scale(int delta) {
   if(vd.py>=VD_H)vd.py=VD_H-1;
   for(int i=0;i<VD_MAX;i++) {
     VDWindow *w=&vd.windows[i]; if(!w->used)continue;
-    if(w->app==VD_SETTINGS || w->app==VD_TASKS) { w->w=VD_W-24;w->h=VD_H-58;w->x=12;w->y=28; }
+    if(w->app==VD_EDIT || w->app==VD_SETTINGS || w->app==VD_TASKS) { w->w=VD_W-24;w->h=VD_H-58;w->x=12;w->y=28; }
     if(w->w>VD_W)w->w=VD_W;
     if(w->h>VD_H-24)w->h=VD_H-24;
     if(w->x+w->w>VD_W)w->x=VD_W-w->w;
@@ -957,15 +953,15 @@ static void vd_settings_draw(VDWindow *w,int x,int y,int width,int height) {
   vd_label(x+8,y+21,"Text, windows, keyboard & taskbar",VD_ACCENT,width-110);
   vd_rect(x+width-96,y+4,40,28,0x477647);vd_label(x+width-80,y+14,"-",VD_TEXT_COLOR,16);
   vd_rect(x+width-48,y+4,40,28,0x477647);vd_label(x+width-32,y+14,"+",VD_TEXT_COLOR,16);
-  const char *names[]={"Desktop layout","Pointer input","Appearance","Terminal font","System update","Save preferences"};
-  char states[6][64];
+  const char *names[]={"Desktop layout","Pointer input","Appearance","Terminal font","System update","Touch calibration","Keyboard size","Window dragging"};
+  char states[8][64];
   snprintf(states[0],64,"%s",vd.joined?"Joined desktop":"Separate regions");
   snprintf(states[1],64,"%s",vd.touchpad?"Touchpad":"Direct touch");
   snprintf(states[2],64,"Green wallpaper %d",vd.wallpaper+1);
   snprintf(states[3],64,"%s",g_cfg.use_5x7?"Compact":"Normal");
-  snprintf(states[4],64,"GitHub / " VU_VERSION);snprintf(states[5],64,"Saved automatically");
-  int cell=(width-8)/2,row=(height-44)/3;
-  for(int i=0;i<6;i++) {
+  snprintf(states[4],64,"GitHub / " VU_VERSION);snprintf(states[5],64,"Offset %d,%d px",vd.touch_offset_x,vd.touch_offset_y);snprintf(states[6],64,"%s",vd.keyboard_large?"Larger keys":"Compact keys");snprintf(states[7],64,"%s",vd.outline_drag?"Fast outline":"Live contents");
+  int cell=(width-8)/2,row=(height-44)/4;
+  for(int i=0;i<8;i++) {
     int xx=x+(i%2)*(cell+8),yy=y+44+(i/2)*row;
     vd_rect(xx,yy,cell,row-5,0x243e30);
     vd_icon(xx+7,yy+7,i==4?VD_UPDATER:VD_SETTINGS);
@@ -980,9 +976,9 @@ static void vd_settings_click(VDWindow *w,int x,int y) {
     else if(rx>=width-48 && rx<width-8)vd_change_scale(25);
     return;
   }
-  int row=(height-44)/3,cell=(width-8)/2;
+  int row=(height-44)/4,cell=(width-8)/2;
   if(ry<44 || row<1 || rx<0)return;
-  int col=rx/(cell+8),r=(ry-44)/row;if(col>1 || r>2)return;
+  int col=rx/(cell+8),r=(ry-44)/row;if(col>1 || r>3)return;
   switch(r*2+col) {
     case 0:vd.joined=!vd.joined;break;
     case 1:vd.touchpad=!vd.touchpad;break;
@@ -991,7 +987,9 @@ static void vd_settings_click(VDWindow *w,int x,int y) {
       for(int s=0;s<4;s++)if(vd.sessions[s])vd.sessions[s]->use_5x7=g_cfg.use_5x7;
       break;
     case 4:vd_new(VD_UPDATER);break;
-    case 5:vd_notice("Preferences saved");break;
+    case 5:vd.calibrating=true;vd.calibration_step=vd.calibration_sum_x=vd.calibration_sum_y=0;vd.keyboard=false;break;
+    case 6:vd.keyboard_large=!vd.keyboard_large;break;
+    case 7:vd.outline_drag=!vd.outline_drag;break;
   }
   vd_save_preferences();vd.dirty=true;
 }
@@ -1008,11 +1006,23 @@ static void vd_graph(int x,int y,int width,int height,int series,const char *lab
     vd_rect(xx,yy,2,y+height-1-yy,VD_ACCENT);
   }
 }
+static void vd_diagnostics_text(char *out,size_t size){
+ snprintf(out,size,"Core 2 emulator measurements (wall time)\nInterpreter + traps: %.1f%%\nDevice polling: %.1f%%\nWFI sleep: %.1f%%\nBatches/s: %.0f  WFI waits/s: %.0f\nGuest PC sample: 0x%08x\nOne virtual CPU; physical load includes system work.\n",vp_view.active,vp_view.devices,vp_view.waits,vp_view.bps,vp_view.wps,vp_view.pc);
+#ifdef PLAT_VITA
+ plat_performance_t *n=&vd_performance.native;const char *names[]={"UI","Files","Linux interpreter","Display","HTTPS"};size_t used=strlen(out);
+ for(int i=0;i<5;i++){int count=snprintf(out+used,size-used,"%s: %s core %d, clock %llu\n",names[i],n->worker_valid[i]?(n->worker_status[i]&4?"waiting":n->worker_status[i]&1?"running":"ready"):"unavailable",n->worker_valid[i]?n->worker_core[i]:-1,n->worker_clock[i]);if(count<0||(size_t)count>=size-used)break;used+=count;}
+ if(used<size)snprintf(out+used,size-used,"Queued file operations: %d\nThread clock: raw kernel counter, not a CPU percentage.\n",n->file_queue);
+#endif
+}
+static void vd_diagnostics_export(VDWindow *w){char path[256],text[15000];snprintf(path,sizeof(path),PLAT_GUEST_STORAGE "/verdant/core2-report.txt");vd_diagnostics_text(text,sizeof(text));size_t n=strlen(text);if(n+strlen(w->text)+32<sizeof(text)){strcat(text,"\nLinux process sample:\n");strcat(text,w->text);}vd_request(w,"write",path,text,NULL,NULL);vd_notice("Saving core2-report.txt in verdant");}
+static void vd_diagnostics_draw(VDWindow *w,int x,int y,int width,int height){char text[2048];vd_diagnostics_text(text,sizeof(text));const char *p=text;int row=0,skip=w->scroll;while(*p&&skip)if(*p++=='\n')skip--;while(*p&&row*14<height-28){char line[180];int n=0;while(*p&&*p!='\n'){if(n<179)line[n++]=*p;p++;}line[n]=0;if(*p)p++;vd_label(x,y+row++*14,line,VD_ACCENT,width);}vd_button(x,y+height-20,142,"Export report");}
 static void vd_tasks_draw(VDWindow *w,int x,int y,int width,int height) {
   vd_rect(x,y,110,24,w->task_tab?0x243e30:0x477647);
   vd_label(x+8,y+8,"Processes",VD_TEXT_COLOR,100);
-  vd_rect(x+116,y,122,24,w->task_tab?0x477647:0x243e30);
+  vd_rect(x+116,y,122,24,w->task_tab==1?0x477647:0x243e30);
   vd_label(x+124,y+8,"Performance",VD_TEXT_COLOR,110);
+  vd_rect(x+244,y,124,24,w->task_tab==2?0x477647:0x243e30);vd_label(x+250,y+8,"Diagnostics",VD_TEXT_COLOR,114);
+  if(w->task_tab==2){vd_diagnostics_draw(w,x,y+32,width,height-32);return;}
   if(!w->task_tab) {
     int cx=x+width-198,rx=x+width-132,px=x+width-54;
     vd_label(x,y+32,"Process (Linux)",VD_ACCENT,width-206);
@@ -1084,6 +1094,8 @@ static void vd_tasks_draw(VDWindow *w,int x,int y,int width,int height) {
 #include "keyboard_ui.h"
 #endif
 static void vd_action(VDWindow *w,int button);
+static void vd_editor_draw(VDWindow *w,int x,int y,int width,int height);
+static void vd_picker_draw(VDWindow *w,int x,int y,int width,int height);
 #include "calculator_ui.h"
 #include "updater_ui.h"
 static bool vd_window_obscured(int i) {
@@ -1109,6 +1121,7 @@ static void vd_render_window(int i) {
   vd_label(w->x + w->w - 68, w->y + 5, "v _ [] X", VD_TEXT_COLOR, 64);
   int x = w->x + 5, y = w->y + 21, width = w->w - 10,
       height = w->h - (w->app == VD_FILES ? 63 : 45);
+  if(w->app==VD_FILES && w->picker_mode){vd_picker_draw(w,x,y,width,w->h-27);return;}
   if (w->terminal)
     vd_terminal_draw(w, x, y, width, height);
   else if (w->app == VD_SETTINGS) {
@@ -1135,10 +1148,7 @@ static void vd_render_window(int i) {
         vd_px(x + xx, y + yy, (p[0] << 16) | (p[1] << 8) | p[2]);
       }
   } else if(w->app==VD_EDIT){
-    vd_rect(x,y,width,22,0x243e30);vd_label(x+6,y+7,"File",VD_TEXT_COLOR,46);vd_label(x+62,y+7,"Edit",VD_TEXT_COLOR,46);
-    if(w->edit_all)vd_rect(x,y+24,width,height-24,0x36543d);
-    vd_lines(w,x,y+26,width,height-26);
-    if(w->edit_menu){const char *file[]={"New","Open...","Save","Save As..."},*edit[]={"Select All","Copy","Cut","Paste"};int mx=x+(w->edit_menu==2?56:0);vd_rect(mx,y+22,148,104,0x294634);for(int j=0;j<4;j++)vd_label(mx+8,y+30+j*26,w->edit_menu==1?file[j]:edit[j],VD_TEXT_COLOR,132);}
+    vd_editor_draw(w,x,y,width,height);
   }else
     vd_lines(w, x, y, width, height);
   int by = w->y + w->h - 18;
@@ -1154,8 +1164,8 @@ static void vd_render_window(int i) {
       vd_button(x + b * 47, by - 18, 44, extra[b]);
   } else if (w->app == VD_EDIT) {
     vd_button(x, by, 44, "Save");
-    vd_button(x + 48, by, 70, "Save As");
-    vd_label(x + 126, by + 4, w->path, VD_ACCENT, width - 126);
+    vd_button(x + 48, by, 70, "Save As");vd_button(x+122,by,80,"Keyboard");
+    vd_label(x + 208, by + 4, w->path, VD_ACCENT, width - 208);
   } else if (w->app == VD_TASKS)
     vd_button(x, by, 70, "Refresh");
   else if (w->app == VD_SSH) {
@@ -1174,8 +1184,9 @@ static void vd_render_window(int i) {
     vd_button(x, by, 54, "List");
     vd_button(x + 58, by, 62, "Install");
     vd_button(x + 124, by, 62, "Update");
-  } else if (w->app == VD_BACKUP)
-    vd_button(x, by, 110, "Backup /root");
+  } else if (w->app == VD_BACKUP){
+    vd_button(x,by,108,"Settings export");vd_button(x+112,by,74,w->entry_mode==13?"Confirm":"Restore");vd_button(x+190,by,66,"Browse");vd_button(x+260,by,84,"Linux /root");
+  }
   else if (w->app == VD_UPDATER) {
     vd_button(x, by, 54, "Check");
     vd_button(x + 58, by, 54, "Update");
@@ -1246,6 +1257,10 @@ static void vd_cursor_draw(void) {
     vd_px(vd.px+xx,vd.py+yy,arrow[yy][xx]=='B'?0x000000:0xffffff);
   }
 }
+static struct {uint8_t *address[4096];uint8_t pixel[4096][4],size[4096];int count;} vd_outline;
+static void vd_outline_restore(void){for(int i=0;i<vd_outline.count;i++)memcpy(vd_outline.address[i],vd_outline.pixel[i],vd_outline.size[i]);vd_outline.count=0;}
+static void vd_outline_pixel(int x,int y){int px=x-vd.pan_x,py=y-vd.pan_y,screen=py>=VD_TERM_H;if(screen){px-=VD_PANEL_X;py-=VD_TERM_H;}plat_fb_t *fb=&vd.fb[screen];if(px<0||py<0||px>=fb->w||py>=fb->h||vd_outline.count>=4096)return;int i=vd_outline.count++;vd_outline.address[i]=fb->base+py*fb->y_stride+px*fb->x_stride;vd_outline.size[i]=fb->bpp;memcpy(vd_outline.pixel[i],vd_outline.address[i],fb->bpp);vd_px(x,y,VD_ACCENT);}
+static void vd_outline_draw(void){if(vd.drag<0||!vd.outline_drag)return;int x=vd.drag_x,y=vd.drag_y,w=vd.drag_w,h=vd.drag_h;if(w<1||h<1)return;for(int i=0;i<w;i++){vd_outline_pixel(x+i,y);if(h>1)vd_outline_pixel(x+i,y+h-1);}for(int j=1;j<h-1;j++){vd_outline_pixel(x,y+j);if(w>1)vd_outline_pixel(x+w-1,y+j);}}
 static void vd_render(void) {
   if (!vd.active)
     return;
@@ -1266,13 +1281,15 @@ static void vd_render(void) {
 #ifdef PLAT_VITA
   if(!vd.dirty && vd.pointer_dirty && minute==vd.rendered_minute) {
     plat_damage_t changed[2];memcpy(changed,vd_cursor_saved.bounds,sizeof(changed));
-    vd_cursor_restore();vd_cursor_draw();
+    vd_cursor_restore();vd_outline_restore();vd_outline_draw();vd_cursor_draw();
     for(int i=0;i<2;i++){plat_damage_t next=vd_cursor_saved.bounds[i];if(!next.w)continue;if(!changed[i].w){changed[i]=next;continue;}int right=changed[i].x+changed[i].w,bottom=changed[i].y+changed[i].h;if(next.x+next.w>right)right=next.x+next.w;if(next.y+next.h>bottom)bottom=next.y+next.h;if(next.x<changed[i].x)changed[i].x=next.x;if(next.y<changed[i].y)changed[i].y=next.y;changed[i].w=right-changed[i].x;changed[i].h=bottom-changed[i].y;}
+    if(vd.drag>=0 && vd.outline_drag){changed[0]=(plat_damage_t){0,0,VD_TERM_W,VD_TERM_H};changed[1]=(plat_damage_t){0,0,VD_PANEL_W,VD_PANEL_H};}
     plat_present_regions(changed);
     vd.pointer_dirty = false;
     return;
   }
 #endif
+  vd_outline.count=0;
   vd.last_clock = now;
   vd.rendered_minute=minute;
   {
@@ -1357,7 +1374,8 @@ static void vd_render(void) {
   }
   if (vd.notice[0] && !vd.keyboard)
     vd_label(VD_PANEL_X + 4, VD_H - 33, vd.notice, VD_ACCENT, VD_PANEL_W - 8);
-  vd_cursor_draw();
+  if(vd.calibrating)vd_calibration_draw();
+  vd_outline_draw();vd_cursor_draw();
   plat_present(PLAT_SURF_BIT(PLAT_SURF_TERM) | PLAT_SURF_BIT(PLAT_SURF_PANEL));
   vd.dirty = false;
   vd.pointer_dirty = false;
@@ -1536,11 +1554,14 @@ static void vd_media_tick(void) {
   }
 }
 static void vd_games_install(void) {
- mkdir(PLAT_SD "verdant/games",0777);const char *names[]={"Snake","Falling Blocks","Brick Breaker"};
- for(int i=0;i<3;i++){char path[256];snprintf(path,sizeof(path),PLAT_SD "verdant/games/%s.vgame",names[i]);FILE *f=fopen(path,"rb");if(f){fclose(f);continue;}f=fopen(path,"wb");if(f){fprintf(f,"VERDANT-GAME %d\n",i+1);fclose(f);}}
+ mkdir(PLAT_SD "verdant/games",0777);const char *names[]={"Snake","Falling Blocks","Brick Breaker","Minesweeper","Pong","2048","Solitaire"};
+ for(int i=0;i<7;i++){char path[256];snprintf(path,sizeof(path),PLAT_SD "verdant/games/%s.vgame",names[i]);FILE *f=fopen(path,"rb");if(f){fclose(f);continue;}f=fopen(path,"wb");if(f){fprintf(f,"VERDANT-GAME %d\n",i+1);fclose(f);}}
 }
 static void vd_action(VDWindow *w, int button) {
   char path[1024];
+#ifdef PLAT_VITA
+  if(w->app==VD_BACKUP && button<3){if(button==0){w->entry_mode=0;vd_save_preferences();vd_request(w,"settingsbackup",PLAT_GUEST_STORAGE "/verdant",NULL,NULL,NULL);}else if(button==1 && w->entry_mode==13){w->entry_mode=0;g_cfg_save_suspended=true;vd_notice("Relaunch after restoring settings");vd_request(w,"settingsrestore",PLAT_GUEST_STORAGE "/verdant",NULL,NULL,NULL);}else if(button==1){w->entry_mode=13;vd_notice("Restore settings: press Restore again to confirm");}else{w->entry_mode=0;int i=vd_new(VD_FILES);if(i>=0){strcpy(vd.windows[i].path,PLAT_GUEST_STORAGE "/verdant/backups");vd_request(&vd.windows[i],"list",vd.windows[i].path,NULL,NULL,NULL);}}vd.dirty=true;return;}
+#endif
   if (w->app == VD_FILES) {
     vd_selected_path(w, path, sizeof(path));
     if (button == 0 && path[0]) {
@@ -1559,7 +1580,7 @@ static void vd_action(VDWindow *w, int button) {
         const char *extension=strrchr(path,'.');
         if(extension && !strcmp(extension,".vgame")){
           int kind=plat_game_kind(path);
-          if(kind>=1 && kind<=3){int game=vd_new(VD_GAMES);if(game>=0)vg_start(&vd.windows[game].game,kind,(uint32_t)plat_us());}
+          if(kind>=1 && kind<=7){int game=vd_new(VD_GAMES);if(game>=0)vg_start(&vd.windows[game].game,kind,(uint32_t)plat_us());}
           else vd_notice("Invalid native game launcher");
           return;
         }
@@ -1629,14 +1650,9 @@ static void vd_action(VDWindow *w, int button) {
       vd_request(w, "list", w->path, NULL, NULL, NULL);
     }
   } else if (w->app == VD_EDIT) {
-    if (button == 0)
-      vd_request(w, "write", w->path, w->text, NULL, NULL);
-    else {
-      w->entry_mode = 8;
-      w->input[0]=0;
-      vd.keyboard = true;
-      vd_notice("Save As: enter a full path, then Enter");
-    }
+    if (button == 0){
+      w->save_hash=ve_hash(w->text);vd_request(w, "write", w->path, w->text, NULL, NULL);}
+    else if(button==1)vd_editor_picker(w,true);else vd.keyboard=!vd.keyboard;
   } else if (w->app == VD_SETTINGS) {
     if (button == 0)
       vd.joined = !vd.joined;
@@ -1655,6 +1671,7 @@ static void vd_action(VDWindow *w, int button) {
       vd_save_preferences();
   } else if (w->app == VD_UPDATER) {
     if (button == 2) {
+      if(g_cfg_save_suspended){vd_notice("Relaunch to apply restored settings");return;}
       vd.auto_update = !vd.auto_update;
       FILE *f = fopen(PLAT_SD "verdant/update-auto.cfg", "wb");
       if (f) {
@@ -1667,14 +1684,14 @@ static void vd_action(VDWindow *w, int button) {
 #ifdef PLAT_VITA
       if(w->update_check.running){vu_native_cancel(&w->update_check);vd_notice("Check cancelled");return;}
 #endif
-      if(!w->job){vd_notice("No transfer to cancel");return;}
+      if(!w->job && !(w->pending && !strcmp(w->pending_op,"sysupdate"))){vd_notice("No transfer to cancel");return;}
       char id[20];
-      snprintf(id, sizeof(id), "%u", w->job);
-      vd_request(w, "cancel", id, NULL, NULL, NULL);
+      snprintf(id, sizeof(id), "%u", w->job?w->job:w->pending);
+      vd_request(NULL, "cancel", id, NULL, NULL, NULL);vd_notice("Cancellation requested; waiting for transfer to stop");
     } else if (!w->job && !w->pending) {
 #ifdef PLAT_VITA
-      if(button==0){w->text[0]=0;plat_http_start();vu_native_start(&w->update_check);vd.dirty=true;}
-      else if(!w->update_check.running)vd_request(w,"sysupdate","stage",PLAT_SLUG,VU_VERSION,NULL);
+      if(button==0){w->update_started=w->update_activity=0;w->text[0]=0;plat_http_start();vu_native_start(&w->update_check);vd.dirty=true;}
+      else if(!w->update_check.running){w->update_started=w->update_activity=plat_us();w->update_hash=0;w->text[0]=0;vd_request(w,"sysupdate","stage",PLAT_SLUG,VU_VERSION,NULL);}
 #else
       vd_request(w,"sysupdate",button==0?"check":"stage",PLAT_SLUG,VU_VERSION,NULL);
 #endif
@@ -1786,19 +1803,7 @@ static void vd_action(VDWindow *w, int button) {
   }
   vd.dirty = true;
 }
-static bool vd_notepad_click(VDWindow *w,int x,int y) {
- int rx=x-w->x-5,ry=y-w->y-21;
- if(ry>=0 && ry<22){w->edit_menu=rx<56?1:rx<112?2:0;return true;}
- if(!w->edit_menu)return false;
- int mx=w->edit_menu==2?56:0,menu=w->edit_menu;w->edit_menu=0;
- if(rx<mx || rx>=mx+148 || ry<22 || ry>=126)return true;
- int action=(ry-22)/26;
- if(menu==2){unsigned char codes[]={1,3,24,22};desktop_input_byte(codes[action]);}
- else if(action==0){w->text[0]=0;w->cursor=0;w->edit_all=false;strcpy(w->path,PLAT_GUEST_STORAGE "/notes.txt");}
- else if(action==2)vd_action(w,0);
- else {w->entry_mode=action==1?7:8;w->input[0]=0;vd.keyboard=true;vd_notice(action==1?"Open: enter full file path, then Enter":"Save As: enter full file path, then Enter");}
- return true;
-}
+#include "editor_ui.h"
 static void vd_keyboard_click(int x, int y) {
 #ifdef PLAT_VITA
   vd_keyboard_click_vita(x,y);
@@ -1916,7 +1921,7 @@ static void vd_click(int x, int y) {
   vd.focused = hit;
   VDWindow *w = &vd.windows[hit];
   if (x >= w->x + w->w - 7 && y >= w->y + w->h - 7) {
-    vd.drag = hit;
+    vd.drag = hit;vd.drag_x=w->x;vd.drag_y=w->y;vd.drag_w=w->w;vd.drag_h=w->h;
     vd.resizing = true;
     vd.dirty = true;
     return;
@@ -1950,11 +1955,12 @@ static void vd_click(int x, int y) {
     else if (rel >= w->w - 72)
       vd_move_screen(w);
     else {
-      vd.drag = hit;
+      vd.drag = hit;vd.drag_x=w->x;vd.drag_y=w->y;vd.drag_w=w->w;vd.drag_h=w->h;
       vd.resizing = false;
       vd.drag_dx = x - w->x;
       vd.drag_dy = y - w->y;
     }
+  } else if(w->app==VD_FILES && w->picker_mode){vd_picker_click(w,x,y);
   } else if(w->app==VD_GAMES){vd_games_click(w,x,y);
   } else if(w->app==VD_EDIT && vd_notepad_click(w,x,y)) {
     vd.dirty=true;
@@ -1966,9 +1972,10 @@ static void vd_click(int x, int y) {
     vd_updater_click(w,x,y);
   } else if (w->app == VD_TASKS && y < w->y+w->h-19) {
     int rx=x-w->x-5, ry=y-w->y-21;
-    if(ry<26) { w->task_tab=rx>=116; w->scroll=0; }
-    else if(w->task_tab && rx<100 && ry>=32) w->task_category=(ry-32)/30;
+    if(ry<26) { w->task_tab=rx>=244?2:rx>=116?1:0; w->scroll=0; }
+    else if(w->task_tab==1 && rx<100 && ry>=32) w->task_category=(ry-32)/30;
     if(w->task_category>4) w->task_category=4;
+    if(w->task_tab==2 && ry>=w->h-80)vd_diagnostics_export(w);
     vd.dirty=true;
   } else if (y >= w->y + w->h - (w->app == VD_FILES ? 37 : 19)) {
     int rel = x - w->x - 5;
@@ -1991,10 +1998,11 @@ static void vd_click(int x, int y) {
       b = rel < 74 ? 0 : rel < 132 ? 1 : rel < 190 ? 2 : 3;
     else if (w->app == VD_SSH)
       b = rel < 74 ? 0 : rel < 122 ? 1 : 2;
+    else if(w->app==VD_BACKUP)b=rel<112?0:rel<190?1:rel<260?2:3;
     else if (w->app == VD_PACKAGES)
       b = rel < 58 ? 0 : rel < 124 ? 1 : 2;
     else if (w->app == VD_EDIT)
-      b = rel < 48 ? 0 : 1;
+      b = rel < 48 ? 0 : rel < 122 ? 1 : 2;
     else if (w->app == VD_DOWNLOAD)
       b = rel < 58 ? 0 : rel < 116 ? 1 : 2;
     else if (w->terminal)
@@ -2029,20 +2037,9 @@ static void vd_click(int x, int y) {
     }
   } else {
     if (w->app == VD_EDIT) {
-      w->edit_all=false;
-      const char *s = w->text;
-      int row = w->scroll + (y - w->y - 47) / 11;
-      while (*s && row)
-        if (*s++ == '\n')
-          row--;
-      int col = (x - w->x - 5) / 8;
-      while (*s && *s != '\n' && col > 0) {
-        s++;
-        col--;
-      }
-      w->cursor = s - w->text;
+      w->edit_all=false;w->cursor=vd_editor_position(w,x,y);w->editor.anchor=w->editor.end=w->cursor;w->editor.selecting=true;
     }
-    vd.keyboard = true;
+    if(w->app!=VD_EDIT)vd.keyboard = true;
   }
   vd.dirty = true;
 }
@@ -2060,6 +2057,7 @@ static void vd_init(void) {
   vd.py = 80;
   mkdir(PLAT_SD "verdant", 0777);
   mkdir(PLAT_SD "verdant/bridge", 0777);
+  vd.keyboard_large=true;vd.outline_drag=true;
   vd_games_install();
   FILE *platform_file = fopen(VD_BRIDGE "platform.txt", "wb");
   if (platform_file) {
@@ -2107,6 +2105,10 @@ static void vd_init(void) {
       int v;
       if (sscanf(line, "ui_scale=%d", &v) == 1)
         vd.ui_scale = v >= 100 && v <= 200 && v % 25 == 0 ? v : 150;
+      else if(sscanf(line,"touch_x=%d",&v)==1)vd.touch_offset_x=v>=-40&&v<=40?v:0;
+      else if(sscanf(line,"touch_y=%d",&v)==1)vd.touch_offset_y=v>=-40&&v<=40?v:0;
+      else if(sscanf(line,"keyboard_large=%d",&v)==1)vd.keyboard_large=v!=0;
+      else if(sscanf(line,"outline_drag=%d",&v)==1)vd.outline_drag=v!=0;
       else if (sscanf(line, "joined=%d", &v) == 1)
         vd.joined = v != 0;
       else if (sscanf(line, "touchpad=%d", &v) == 1)
@@ -2163,6 +2165,7 @@ static int vd_pointer_step(int axis, uint64_t elapsed, int64_t *fraction) {
   return pixels;
 }
 static void vd_update(const plat_input_t *in) {
+  if(vd.calibrating){vd_calibration_input(in);vd_render();return;}
   vd_poll_bridge();
   if (!vd.update_checked && !vd.recovery) {
     FILE *ready = fopen(VD_BRIDGE "ready", "rb");
@@ -2194,6 +2197,14 @@ static void vd_update(const plat_input_t *in) {
   }
   for(int i=0;i<VD_MAX;i++) {
     VDWindow *task=&vd.windows[i];
+    if(task->used && task->app==VD_UPDATER && !vd_window_obscured(i)){
+      bool busy=task->pending||task->job;
+#ifdef PLAT_VITA
+      busy|=task->update_check.running;
+#endif
+      if(busy && plat_us()-task->performance_tick>250000){task->performance_tick=plat_us();vd.dirty=true;}
+    }
+
     if(task->used && task->app==VD_TASKS && !task->minimized && task->workspace==vd.workspace
         && plat_us()-task->performance_tick>2000000 && !task->pending) {
       task->performance_tick=plat_us();
@@ -2204,7 +2215,10 @@ static void vd_update(const plat_input_t *in) {
     }
   }
   vd_media_tick();
-  vd_games_tick(in);
+  vp_sample(plat_us());vd_games_tick(in);
+#ifdef VERDANT_TEST_VITA
+  static uint64_t last_profile_export;const char *profile_output=getenv("VERDANT_PROFILE_OUT");if(profile_output && plat_us()-last_profile_export>2000000){last_profile_export=plat_us();char report[2048];vd_diagnostics_text(report,sizeof(report));FILE *f=fopen(profile_output,"wb");if(f){fputs(report,f);fclose(f);}}
+#endif
   VDWindow *w = vd_focus();
   static uint64_t status_tick;
   uint64_t now = plat_us();
@@ -2300,8 +2314,12 @@ static void vd_update(const plat_input_t *in) {
   }
   int x = in->ptr_x + VD_PANEL_X, y = in->ptr_y + VD_TERM_H;
 #ifdef PLAT_VITA
-  x = in->ptr_x * VD_TERM_W / PLAT_TERM_W;
-  int physical_y = in->ptr_y + PLAT_TERM_H;
+  x = (in->ptr_x+vd.touch_offset_x) * VD_TERM_W / PLAT_TERM_W;
+  if(x<0)x=0;
+  if(x>=VD_W)x=VD_W-1;
+  int physical_y = in->ptr_y + PLAT_TERM_H+vd.touch_offset_y;
+  if(physical_y<0)physical_y=0;
+  if(physical_y>=PLAT_TERM_H+PLAT_PANEL_H)physical_y=PLAT_TERM_H+PLAT_PANEL_H-1;
   y = physical_y < PLAT_TERM_H ? physical_y * VD_TERM_H / PLAT_TERM_H
       : VD_TERM_H + (physical_y - PLAT_TERM_H) * VD_PANEL_H / PLAT_PANEL_H;
 #endif
@@ -2343,7 +2361,7 @@ static void vd_update(const plat_input_t *in) {
     vd_click(vd.px, vd.py);
   int interaction_x=in->ptr_down?x:vd.px,interaction_y=in->ptr_down?y:vd.py;
   if (vd.drag >= 0 && (in->ptr_down || (in->held & PLAT_BTN_A))) {
-    VDWindow *d = &vd.windows[vd.drag];
+    VDWindow temporary=vd.windows[vd.drag];VDWindow *d=vd.outline_drag?&temporary:&vd.windows[vd.drag];
     if (vd.resizing) {
       d->w = interaction_x - d->x + 1;
       d->h = interaction_y - d->y + 1;
@@ -2366,9 +2384,11 @@ static void vd_update(const plat_input_t *in) {
           d->y = hi;
       }
     }
-    vd.dirty = true;
-  } else
-    vd.drag = -1;
+    vd.drag_x=d->x;vd.drag_y=d->y;vd.drag_w=d->w;vd.drag_h=d->h;
+    if(vd.outline_drag)vd.pointer_dirty=true;else vd.dirty=true;
+  } else if(vd.drag>=0){if(vd.outline_drag){VDWindow *d=&vd.windows[vd.drag];d->x=vd.drag_x;d->y=vd.drag_y;d->w=vd.drag_w;d->h=vd.drag_h;}vd.drag=-1;vd.dirty=true;}
+  VDWindow *edit_focus=vd_focus();
+  if(edit_focus && edit_focus->app==VD_EDIT && edit_focus->editor.selecting){if(in->ptr_down || (in->held&PLAT_BTN_A)){int pos=vd_editor_position(edit_focus,interaction_x,interaction_y);if(pos!=edit_focus->editor.end){edit_focus->editor.end=pos;edit_focus->cursor=pos;vd.dirty=true;}}else edit_focus->editor.selecting=false;}
   if (vd.selecting && (in->ptr_down || (in->held & PLAT_BTN_A))) {
     VDWindow *s = vd_focus();
     if (s && s->terminal) {
@@ -2435,12 +2455,15 @@ static void vd_shutdown(void) {
   for(int i=0;i<VD_MAX;i++)if(vd.windows[i].used && vd.windows[i].app==VD_UPDATER)vu_native_cancel(&vd.windows[i].update_check);
   plat_http_stop();
 #endif
+#ifdef VERDANT_TEST_VITA
+  const char *profile_path=getenv("VERDANT_PROFILE_OUT");if(profile_path){char report[2048];vp_sample(plat_us());vd_diagnostics_text(report,sizeof(report));char final_path[1024];snprintf(final_path,sizeof(final_path),"%s.shutdown",profile_path);FILE *f=fopen(final_path,"wb");if(f){fputs(report,f);fclose(f);}}
+#endif
   vd_stop_media();
   vd_save_preferences();
   for (int s = 0; s < 4; s++)
     free(vd.sessions[s]);
   for (int i = 0; i < VD_MAX; i++)
-    stbi_image_free(vd.windows[i].image);
+    {stbi_image_free(vd.windows[i].image);ve_free(&vd.windows[i].editor);}
   vd.active = false;
 }
 #endif

@@ -4,7 +4,7 @@ typedef struct {const char *label;int code,units;} VKSpec;
 typedef struct {int x,y,w,h,code;const char *label;} VKButton;
 static VKButton vk_buttons[80];static int vk_count;
 static int vk_touch=-1;static bool vk_tracking;static int vk_last_x,vk_last_y;
-static int vd_keyboard_top(void) {return VD_H*2/5;}
+static int vd_keyboard_top(void) {return VD_H*(vd.keyboard_large?35:40)/100;}
 static void vd_keyboard_layout(void) {
  static const VKSpec rows[][16]={
   {{"`",'`',2},{"1",'1',2},{"2",'2',2},{"3",'3',2},{"4",'4',2},{"5",'5',2},{"6",'6',2},{"7",'7',2},{"8",'8',2},{"9",'9',2},{"0",'0',2},{"-",'-',2},{"=",'=',2},{"Back",127,4}},
@@ -56,7 +56,7 @@ static void vd_keyboard_click_vita(int x,int y) {
    if(k>=VK_LEFT && k<=VK_PGDN)vd_navigation(k-VK_LEFT);
    else if(k==-127){
     VDWindow *w=vd_focus();
-    if(w && w->app==VD_EDIT && !w->entry_mode){int n=(int)strlen(w->text),pos=w->cursor;if(pos>=0 && pos<n){int end=pos+1;while(end<n && ((unsigned char)w->text[end]&0xc0)==0x80)end++;memmove(w->text+pos,w->text+end,(size_t)(n-end+1));}}
+    if(w && w->app==VD_EDIT && !w->entry_mode){int n=(int)strlen(w->text),pos=w->cursor;if(pos>=0 && pos<n){ve_delete(&w->editor,w->text,&w->cursor,sizeof(w->text),true,plat_us());w->edit_all=false;}}
     else if(w && w->app==VD_REMOTE && w->job && !w->entry_mode)vd_remote_event(w,"special 65535");
     else if(w && !w->terminal)rx_push(127);
     else rx_push_str("\033[3~");

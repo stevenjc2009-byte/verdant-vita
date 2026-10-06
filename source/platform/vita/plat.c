@@ -520,6 +520,10 @@ void plat_performance(plat_performance_t *out) {
   memset(out, 0, sizeof(*out));
   for (int i=0;i<4;i++) out->cores[i]=-1;
   out->display_core=vita_display_core;
+  SceUID worker_ids[]={sceKernelGetThreadId(),vf_thread,emu_tid,vita_display_thread,vita_http_thread};
+  for(int i=0;i<5;i++){out->worker_core[i]=-1;if(worker_ids[i]>=0){SceKernelThreadInfo thread={.size=sizeof(thread)};if(sceKernelGetThreadInfo(worker_ids[i],&thread)>=0){out->worker_valid[i]=1;out->worker_core[i]=thread.lastExecutedCpuId;out->worker_status[i]=thread.status;memcpy(&out->worker_clock[i],&thread.runClocks,sizeof(thread.runClocks));}}}
+  if(vf_thread>=0){plat_mutex_lock(&vf_lock);out->file_queue=vf_write-vf_read;plat_mutex_unlock(&vf_lock);}
+
   out->cpu_mhz=scePowerGetArmClockFrequency();
   out->gpu_mhz=scePowerGetGpuClockFrequency();
   out->wifi_state=-1; out->signal=-1;

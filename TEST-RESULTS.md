@@ -73,3 +73,15 @@ Notepad has File (New, Open, Save, Save As) and Edit (Select All, Copy, Cut, Pas
 The desktop's Terminal, Files, Notepad, Calculator and Games shortcuts are omitted from Start. Games contains native Snake, Falling Blocks and Brick Breaker, touch/D-pad input, pause/restart and persistent high scores. Game launch markers are created in `ux0:/verdant/games/` and open through Files. They run within Verdant without a Linux game process. Hidden/minimized games pause their updates. Doom is not bundled; see [FEATURE-LIST-VITA.md](FEATURE-LIST-VITA.md) for future options and native engine research.
 
 CPU charts identify each physical core's role. The Linux interpreter remains on Core 2 with one virtual CPU; this release does not claim equal utilization or a fix for the reported 81% plateau. VitaSDK and sanitized host tests cover keyboard correction/release/cancellation, cursor restoration, Notepad menus/save/clipboard, native game board/collision/rotation limits and layouts. Physical Vita accuracy and speed still require testing.
+
+## Vita 0.4.0 usability and diagnostics
+
+Adds five-target touch-offset calibration, a taller default keyboard with Compact/Larger setting, Notepad selection and bounded undo/redo, Find/Replace, View controls, unsaved-change prompts and graphical Open/Save As dialogs with existence/overwrite checks. New Notepad documents default to Vita storage for native operation before Linux is ready.
+
+Fast outline dragging avoids rendering window contents on each movement. Native queued interactive reads/saves receive bounded priority without reordering dependent paths. Quiet guest mailbox polling and completed-job processing are reduced. Diagnostics expose measured emulator execution/poll/wait time and native worker state/core/clock counters; process rows prioritize measured CPU activity. Core 2 still runs one emulated CPU. No equal-load or on-device FPS claim is made.
+
+Games adds Minesweeper, Pong, 2048 and one-card Klondike Solitaire to the existing three native games; held controls, paddle dragging, difficulty for real-time games and visible high scores are included. Doom remains outside this release.
+
+Updater feedback includes elapsed time, rate/ETA, stalled-output indication, retry and cancellation during service acceptance. Backups exports/restores verified settings and retains previous document copies. Restore is confirmed and applies after relaunch; full Linux disk backups remain offline. See [FEATURE-LIST-VITA.md](FEATURE-LIST-VITA.md) for usage, measurements and practical limits.
+
+The Vita linker reserves SCE metadata headroom between load segments so code growth does not cause converter overlap failures. Validation includes sanitized actual desktop/models/native storage, real RV32 Linux operation and installer/previous-updater archive compatibility. Physical Vita verification is still required.

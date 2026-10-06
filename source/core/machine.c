@@ -673,6 +673,9 @@ static int EmuStepBatch(uint64_t *last_tick) {
            !sbi_shutdown_requested &&
            now - frame_start < EMU_RUN_BUDGET_US);
 
+  uint64_t poll_start=plat_us();
+  atomic_fetch_add(&vp.execute_us,(unsigned)(poll_start-frame_start));
+  atomic_fetch_add(&vp.batches,1);atomic_store(&vp.pc,core->pc);
   vnet_poll(ram_image);
 
   int32_t axes[VI_NAXES];
@@ -680,7 +683,7 @@ static int EmuStepBatch(uint64_t *last_tick) {
   memcpy(axes, g_vinput_axes, sizeof(axes));
   plat_mutex_unlock(&ui_lock);
   vinput_poll(ram_image, axes);
-
+  atomic_fetch_add(&vp.poll_us,(unsigned)(plat_us()-poll_start));
   return ret;
 }
 
@@ -691,7 +694,7 @@ static void EmuThreadEntry(void *arg) {
     int ret = EmuStepBatch(&last_tick);
     g_emu_ret = ret;
     if (ret == 0x5555 || ret == 3 || sbi_shutdown_requested) break;
-    if (ret == 1) plat_sleep_us(1000);
+    if (ret == 1){uint64_t idle_start=plat_us();plat_sleep_us(1000);atomic_fetch_add(&vp.idle_us,(unsigned)(plat_us()-idle_start));atomic_fetch_add(&vp.wfi,1);}
   }
 }
 
@@ -1406,7 +1409,7 @@ after_input:
       int ret = EmuStepBatch(&inline_tick);
       g_emu_ret = ret;
       /* WFI: the guest asked to idle, so stop burning the budget on it. */
-      if (ret == 1) plat_sleep_us(1000);
+      if (ret == 1){uint64_t idle_start=plat_us();plat_sleep_us(1000);atomic_fetch_add(&vp.idle_us,(unsigned)(plat_us()-idle_start));atomic_fetch_add(&vp.wfi,1);}
     }
 
     int emu_ret = g_emu_ret;

@@ -10,7 +10,9 @@ def process_role(name, command):
     if 'verdant-updater.py' in command:return 'Updater: checks, downloads and verifies'
     if 'verdant-currency.py' in command:return 'Calculator: downloads currency rates'
     if 'verdant-vnc.py' in command:return 'Remote desktop connection'
-    return {'syslogd':'System log collector','klogd':'Kernel log collector',
+    if name.startswith('jbd2/'):return 'Filesystem journal: commits disk writes'
+    if name.startswith('kworker'):return 'Kernel background work'
+    return {'ext4lazyinit':'Filesystem initialization in the background','syslogd':'System log collector','klogd':'Kernel log collector',
             'init':'Starts services and cleans up exited processes',
             'bash':'Interactive terminal shell','sh':'Shell or startup script',
             'dropbear':'SSH server or connection','sshd':'SSH server',
@@ -67,7 +69,7 @@ def sample():
         if _last and pid in _last['processes'] and now>_last['time']:
             percent=max(0,(clock-_last['processes'][pid][0])*100/ticks/(now-_last['time']))
         scored.append((rss,pid,percent,name,role))
-    for rss,pid,percent,name,role in sorted(scored,reverse=True)[:100]:
+    for rss,pid,percent,name,role in sorted(scored,key=lambda row:(row[2],row[0]),reverse=True)[:100]:
         rows.append('PROC|%d|%.1f|%d|%s|%s'%(pid,percent,rss,name,role))
     _last=dict(time=now,cpu=cpu,net=net,disk=disk,processes=processes)
     return '\n'.join(rows)

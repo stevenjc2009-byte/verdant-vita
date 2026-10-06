@@ -1,4 +1,5 @@
 static void vd_updater_draw(VDWindow *w,int x,int y,int width,int height) {
+ uint64_t now=plat_us();if(w->pending||w->job){if(!w->update_started)w->update_started=w->update_activity=now;uint32_t hash=ve_hash(w->text);if(hash!=w->update_hash){w->update_hash=hash;w->update_activity=now;}}
  const char *phase="Ready to check",*detail="Tap Check now to query your Vita GitHub release channel.";
 #ifdef PLAT_VITA
  if(w->update_check.running) {phase="Checking for updates";detail=w->update_check.status;}
@@ -30,6 +31,14 @@ static void vd_updater_draw(VDWindow *w,int x,int y,int width,int height) {
  else if(!strcmp(phase,"Ready to install") || !strcmp(phase,"Check complete"))vd_rect(x+8,bar_y,width-16,9,0x477647);
  vd_label(x+8,y+100,"Channel: stevenjc2009-byte/verdant-vita",VD_TEXT_COLOR,width-16);
  int yy=y+117;
+ if(busy){uint64_t started=w->update_started;
+#ifdef PLAT_VITA
+ if(w->update_check.running)started=w->update_check.started;
+#endif
+ char timing[160];unsigned elapsed=started?(unsigned)((now-started)/1000000):0;snprintf(timing,sizeof(timing),"Elapsed: %us%s",elapsed,w->job&&w->update_activity&&now-w->update_activity>15000000?" / no new progress; Cancel or retry":"");vd_label(x+8,yy,timing,VD_ACCENT,width-16);yy+=15;
+ if(total&&received&&elapsed){double speed=(double)received/elapsed;unsigned eta=speed>0?(unsigned)((total-received)/speed):0;snprintf(timing,sizeof(timing),"Average %.1f KiB/s / about %us remaining",speed,eta);vd_label(x+8,yy,timing,VD_ACCENT,width-16);yy+=15;}
+ }
+
  if(busy && total){char percent[80];snprintf(percent,sizeof(percent),"Download: %.0f%% (%llu / %llu KiB)",100.0*received/total,received,total);vd_label(x+8,yy,percent,VD_ACCENT,width-16);yy+=15;}
  if(w->job || strstr(w->text,"exit=") || strstr(w->text,"Verified v")) {
   const char *p=w->text;const char *last=p;
@@ -37,7 +46,11 @@ static void vd_updater_draw(VDWindow *w,int x,int y,int width,int height) {
   vd_label(x+8,yy,!strncmp(last,"running",7)?"The Linux service is preparing the download...":last,VD_ACCENT,width-16);yy+=15;
  }
  if(yy+10<y+height-39)vd_label(x+8,yy,"Downloads are verified before installation.",VD_TEXT_COLOR,width-16);
- const char *labels[]={"Check now","Download",vd.auto_update?"Auto: on":"Auto: off","Cancel"};
+ const char *check_label="Check now";
+#ifdef PLAT_VITA
+ if(w->update_check.failed)check_label="Retry check";
+#endif
+ const char *labels[]={check_label,"Download",vd.auto_update?"Auto: on":"Auto: off","Cancel"};
  int button_width=width/4;
  for(int i=0;i<4;i++) {
   int xx=x+i*button_width,by=y+height-31;

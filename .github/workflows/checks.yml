@@ -54,3 +54,7 @@ jobs:
         run: |
           gcc -O1 -g -fsanitize=address,undefined tests/games_test.c -o /tmp/verdant-games-test
           /tmp/verdant-games-test
+      - name: Test Notepad document editing
+        run: |
+          gcc -O1 -g -fsanitize=address,undefined tests/editor_test.c -o /tmp/verdant-editor-test
+          /tmp/verdant-editor-test

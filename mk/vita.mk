@@ -46,7 +46,9 @@ CFLAGS		:=	-g -Wall -O3 -ffunction-sections \
 			-MMD -MP $(ARCH) \
 			$(foreach dir,$(INCDIR),-I$(dir))
 
-LDFLAGS		:=	-Wl,-q $(ARCH)
+# Leave a full page for SCE import/module metadata between load segments.
+# Without headroom, code size can put the next segment too close to convert.
+LDFLAGS		:=	-Wl,-q,--defsym=__sce_headroom=0x10000 $(ARCH)
 
 # curl is only ever for fetching a missing Image - see source/core/download.h.
 # vitasdk builds it against mbedTLS
@@ -93,7 +95,7 @@ $(BUILD)/eboot.bin: $(TARGET).velf
 	$(VITASDK)/bin/vita-make-fself $< $@
 
 $(BUILD)/param.sfo: mk/vita.mk | $(BUILD)
-	$(VITASDK)/bin/vita-mksfoex -s TITLE_ID=$(TITLE_ID) -s APP_VER=00.33 "$(APP_NAME)" $@
+	$(VITASDK)/bin/vita-mksfoex -s TITLE_ID=$(TITLE_ID) -s APP_VER=00.40 "$(APP_NAME)" $@
 
 $(VPK): $(BUILD)/eboot.bin $(BUILD)/param.sfo $(VITA_ICON) $(VITA_LIVEAREA)/bg.png $(VITA_LIVEAREA)/startup.png $(VITA_LIVEAREA)/template.xml tools/check_vita_assets.py | $(DISTDIR)
 	python tools/check_vita_assets.py

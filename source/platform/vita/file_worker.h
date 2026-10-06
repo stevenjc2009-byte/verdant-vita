@@ -8,12 +8,16 @@ static plat_mutex_t vf_lock;
 static SceUID vf_thread=-1,vf_ready=-1;
 static atomic_bool vf_stop;
 static void vf_delete_lock(void){SceUID id;memcpy(&id,&vf_lock,sizeof(id));sceKernelDeleteMutex(id);}
+static bool vf_interactive(const VFRequest *r){return !strcmp(r->op,"read")||!strcmp(r->op,"write");}
+static bool vf_overlap(const char *a,const char *b){if(!a||!b)return false;size_t n=strlen(a),m=strlen(b);return (n<=m&&!strncmp(a,b,n)&&(!b[n]||b[n]=='/'))||(m<=n&&!strncmp(a,b,m)&&(!a[m]||a[m]=='/'));}
+/* Keep operations on the same paths ordered; limit overtakes to four. */
+static unsigned vf_pick(unsigned burst){if(burst>=4)return vf_read;for(unsigned i=vf_read;i<vf_write;i++){VFRequest *r=&vf_queue[i%VF_QUEUE];if(!vf_interactive(r))continue;bool dependent=false;for(unsigned j=vf_read;j<i;j++){VFRequest *p=&vf_queue[j%VF_QUEUE];if(vf_overlap(r->path,p->path)||((!strcmp(p->op,"move")||!strcmp(p->op,"copy"))&&vf_overlap(r->path,p->data)))dependent=true;}if(!dependent)return i;}return vf_read;}
 static int vf_entry(SceSize size,void *arg) {
- static char response[VF_TEXT+1];
+ static char response[VF_TEXT+1];unsigned burst=0;
  while(sceKernelWaitSema(vf_ready,1,NULL)>=0) {
   plat_mutex_lock(&vf_lock);
   if(vf_read==vf_write){bool stop=atomic_load(&vf_stop);plat_mutex_unlock(&vf_lock);if(stop)break;continue;}
-  VFRequest request=vf_queue[vf_read%VF_QUEUE];vf_read++;plat_mutex_unlock(&vf_lock);
+  unsigned selected=vf_pick(burst);VFRequest request=vf_queue[selected%VF_QUEUE];for(unsigned i=selected;i>vf_read;i--)vf_queue[i%VF_QUEUE]=vf_queue[(i-1)%VF_QUEUE];vf_read++;burst=vf_interactive(&request)?burst+1:0;plat_mutex_unlock(&vf_lock);
   bool ok=vf_execute(request.op,request.path,request.data,response,VF_TEXT+1);free(request.data);
   char part[256],dest[256];snprintf(part,sizeof(part),PLAT_SD "verdant/bridge/%u.native-part",request.id);snprintf(dest,sizeof(dest),PLAT_SD "verdant/bridge/%u.res",request.id);
   FILE *f=fopen(part,"wb");if(f){fprintf(f,"%s\n%s",ok?"OK":"ERROR",response);bool saved=!ferror(f);if(fclose(f))saved=false;if(saved)rename(part,dest);else remove(part);}
