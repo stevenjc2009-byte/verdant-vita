@@ -3,7 +3,7 @@
 import hashlib,json,os,re,ssl,sys,time,urllib.request,zipfile
 from pathlib import Path,PurePosixPath
 
-VERSION='0.2.0'
+VERSION='0.2.4'
 REPOS={'3ds':'stevenjc2009-byte/verdant-3ds','vita':'stevenjc2009-byte/verdant-vita'}
 LIMIT=160*1024*1024
 RUNTIME=Path(os.environ.get('VERDANT_RUNTIME','/mnt/3ds/sd/verdant'))
@@ -34,7 +34,7 @@ def opener():
     context=ssl.create_default_context(cafile=str(RUNTIME/'guest'/'github-ca.pem'))
     return urllib.request.build_opener(GithubRedirect(),urllib.request.HTTPSHandler(context=context))
 
-def fetch(client,url,target=None,limit=1024*1024):
+def fetch_once(client,url,target=None,limit=1024*1024):
     request=urllib.request.Request(safe_url(url),headers={'User-Agent':'Verdant-Updater/'+VERSION,'Accept':'application/vnd.github+json'})
     with client.open(request,timeout=45) as response:
         safe_url(response.url)
@@ -49,6 +49,20 @@ def fetch(client,url,target=None,limit=1024*1024):
             if target and time.monotonic()-last>3:
                 print('Downloaded %d KiB'%(count//1024),flush=True);last=time.monotonic()
         return bytes(data)
+
+def fetch(client,url,target=None,limit=1024*1024):
+    import urllib.error
+    for attempt in range(3):
+        try:
+            if target:target.seek(0);target.truncate()
+            return fetch_once(client,url,target,limit)
+        except urllib.error.HTTPError as e:
+            if e.code<500 or attempt==2:raise
+        except (urllib.error.URLError,TimeoutError,ConnectionError,ssl.SSLError) as e:
+            reason=getattr(e,'reason',e)
+            if isinstance(reason,ssl.SSLCertVerificationError) or attempt==2:raise
+        print('Connection interrupted; retrying verified HTTPS',flush=True)
+        time.sleep(2**(attempt+1))
 
 def allowed(name,platform):
     if '\\' in name or ':' in name or '..' in PurePosixPath(name).parts:return False

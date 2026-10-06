@@ -2,7 +2,7 @@
 #define VERDANT_UPDATER_H
 #include <errno.h>
 #include <sys/stat.h>
-#define VU_VERSION "0.2.3"
+#define VU_VERSION "0.2.4"
 #ifdef __linux__
 #include <openssl/evp.h>
 #else

@@ -1,8 +1,8 @@
 # Verdant for PlayStation Vita
 
-The standalone **verdant.vpk** in release 0.2.3 includes Linux and performs automatic first-launch setup. Install it in VitaShell and launch; no separate ZIP extraction is required. The update channel uses `verdant-vita-update.zip` with a thin VPK and separately staged runtime files. See [VITA.md](VITA.md).
+Version **0.2.4** fixes the display initialization error **0x80290006** found in the supplied console boot log. Install the standalone **verdant.vpk** through VitaShell, replacing the existing application. It includes Linux and performs automatic first-launch setup; no separate ZIP extraction is required. Physical boot after this fix still needs confirmation. See [VITA.md](VITA.md).
 
-# Verdant Desktop â€” experimental 0.2.3 (Vita one-click setup)
+# Verdant Desktop — experimental 0.2.4 (Vita one-click setup)
 
 An original dark-green desktop for real Linux inside a homebrew application, based on 3DS-CLI 5.3. **This is an experimental build, not a complete Linux Mint port. No physical console has been tested.** See FEATURE-STATUS.md and TEST-RESULTS.md.
 
@@ -51,15 +51,15 @@ SSH opens a real terminal. Key selects an optional guest private key; Save keeps
 
 Incoming SSH forwards port **2222** on the console's LAN address. **Blank-password network login is disabled**. Use `passwd` or install `/root/.ssh/authorized_keys` before connecting: `ssh -p 2222 root@CONSOLE_IP`. The local console starts as root with a blank password; network authentication is separate.
 
-Remote desktop uses VNC/RFB 3.3â€“3.8, raw pixels and classic VNC password authentication. Set server desktop to **640Ã—480 or smaller**; enter `host:5900`, optionally Pass, then Connect. Touch image to left-click; Keys opens keyboard. Linux/Windows VNC servers are supported in principle; real desktop-server interoperability remains untested. No Microsoft RDP, TLS/VeNCrypt, incoming clipboard, right-click or remote dragging. Classic VNC is unencrypted; use a private LAN or guest SSH tunnel. Passwords are not saved in preferences.
+Remote desktop uses VNC/RFB 3.3–3.8, raw pixels and classic VNC password authentication. Set server desktop to **640×480 or smaller**; enter `host:5900`, optionally Pass, then Connect. Touch image to left-click; Keys opens keyboard. Linux/Windows VNC servers are supported in principle; real desktop-server interoperability remains untested. No Microsoft RDP, TLS/VeNCrypt, incoming clipboard, right-click or remote dragging. Classic VNC is unencrypted; use a private LAN or guest SSH tunnel. Passwords are not saved in preferences.
 
-PNG/JPEG/BMP viewing is limited to 640Ã—480. Media Cam/Inner captures a 3DS snapshot. Rec/Stop saves `verdant/recording.wav`; Play plays that recording. Arbitrary music/video formats are not implemented. Physical media hardware is untested.
+PNG/JPEG/BMP viewing is limited to 640×480. Media Cam/Inner captures a 3DS snapshot. Rec/Stop saves `verdant/recording.wav`; Play plays that recording. Arbitrary music/video formats are not implemented. Physical media hardware is untested.
 
 Bash, Vim, Nano, htop, tree, wget, BusyBox, SSH and SCP were verified in the guest. **winget is a Windows tool**; compatible Linux packages use opkg. Packages offers local RV32 ILP32 `.ipk` installation and configured-feed commands; there is no maintained Verdant feed or Ubuntu/Mint package compatibility. Local X11/Wayland and ordinary Linux GUI applications remain unimplemented. Use a remote computer for those applications.
 
 ## Backup, update, recovery
 
-**Built-in GitHub updates:** open Settings â†’ Upd (or System update). Check queries your console's repository; Update downloads and verifies the latest stable release; Auto+ enables automatic staging of newer releases. Exit cleanly and relaunch to apply, then launch again to run the new executable. See UPDATES.md for repository links, recovery, verification and installed-title permission limitations. Install this 0.2.0 build once to gain the updater.
+**Built-in GitHub updates:** open Settings → Upd (or System update). Check queries your console's repository; Update downloads and verifies the latest stable release; Auto+ enables automatic staging of newer releases. Exit cleanly and relaunch to apply, then launch again to run the new executable. See UPDATES.md for repository links, recovery, verification and installed-title permission limitations. Install this 0.2.0 build once to gain the updater.
 
 Backups makes a timestamped `/root` tar archive on SD. Close the app for a complete offline backup or update:
 

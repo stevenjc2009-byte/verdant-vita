@@ -146,9 +146,13 @@ bool plat_init(void) {
     .width       = VITA_SCREEN_W,
     .height      = VITA_SCREEN_H,
   };
-  fb_result=sceDisplaySetFrameBuf(&fb, SCE_DISPLAY_SETBUF_IMMEDIATE);
+  /* The Vita user display service rejects immediate updates with
+     SCE_DISPLAY_ERROR_INVALID_UPDATETIMING (0x80290006). Schedule scanout
+     for the next frame, as used by the VitaSDK display samples. */
+  fb_result=sceDisplaySetFrameBuf(&fb, SCE_DISPLAY_SETBUF_NEXTFRAME);
   vita_init_note("display setup",fb_result);
   if (fb_result < 0) return false;
+  sceDisplayWaitVblankStart();
 
   sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
   vita_touch_init();

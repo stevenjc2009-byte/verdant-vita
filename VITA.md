@@ -1,4 +1,6 @@
-# Verdant Desktop for PS Vita — experimental 0.2.3
+# Verdant Desktop for PS Vita — experimental 0.2.4
+
+Version 0.2.4 corrects the startup display failure recorded in the console boot log: 0x80290006 (invalid framebuffer update timing). Display initialization now schedules the framebuffer on the next frame, then waits for vertical blank before drawing. Physical launch after this fix still needs confirmation.
 
 Version 0.2.3 provides a **self-contained, one-click setup VPK**. It contains the Linux image, service scripts and HTTPS certificates. First launch copies and verifies these files, then extracts the Linux filesystem and boots it automatically. No separate ZIP extraction or manual folder creation is required. The earlier thin VPKs did not include the runtime.
 

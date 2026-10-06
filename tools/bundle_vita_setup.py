@@ -3,7 +3,7 @@ import hashlib,zipfile
 from pathlib import Path
 from check_vita_assets import check,SIZES
 project=Path(__file__).resolve().parents[1]
-version='0.2.3'
+version='0.2.4'
 source=project/'dist/vita/verdant.vpk'
 dest=project/'dist/vita/verdant-setup.vpk'
 files={'verdant/Image':project/'Image'}
