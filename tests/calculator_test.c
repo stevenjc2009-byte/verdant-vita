@@ -37,5 +37,6 @@ int main(void) {
  vc_mode(&c,VC_PROGRAMMER);c.base=16;vc_key(&c,"C");vc_key(&c,"=");assert(c.integer==12);
  vc_mode(&c,VC_DATE);strcpy(c.date[0],"2024-02-28");strcpy(c.date[1],"2024-03-01");vc_evaluate(&c);assert(strstr(c.answer,"2 days"));c.date_action=1;strcpy(c.days,"1");vc_evaluate(&c);assert(!strcmp(c.answer,"2024-02-29"));
  vc_mode(&c,VC_CURRENCY);vc_evaluate(&c);assert(c.error[0]);c.rates[1]=.8;strcpy(c.expression,"10");vc_evaluate(&c);close_to(c.value,8);
+ VCState graph;vc_init(&graph);strcpy(graph.expression,"x^2");vc_graph_prepare(&graph,320,180);assert(graph.graph_samples==1);vc_graph_prepare(&graph,320,180);assert(graph.graph_samples==1);graph.graph_x+=1;vc_graph_prepare(&graph,320,180);assert(graph.graph_samples==2);strcpy(graph.expression,"sin(x)");vc_graph_prepare(&graph,320,180);assert(graph.graph_samples==3);
  puts("Calculator arithmetic, scientific/graph functions, 64-bit words, dates, units, currency, memory, percent and repeated equals passed.");
 }

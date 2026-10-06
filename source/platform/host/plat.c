@@ -114,6 +114,13 @@ int plat_hw_audio_write(const uint8_t *data, int n) { return 0; }
 int plat_update_title(const char *package) { return 0; }
 
 #ifdef PLAT_VITA
+#include "../vita/native_files.h"
+void plat_present_regions(const plat_damage_t regions[2]){plat_present(3);}
+bool plat_files_request(unsigned id,const char *op,const char *a,const char *b) {
+ if(!getenv("VERDANT_NATIVE_FILES") || !vf_supported(op,a,b))return false;
+ char response[VF_TEXT+1],path[256];bool ok=vf_execute(op,a,b,response,sizeof(response));snprintf(path,sizeof(path),PLAT_SD "verdant/bridge/%u.res",id);
+ FILE *f=fopen(path,"wb");if(!f)return false;fprintf(f,"%s\n%s",ok?"OK":"ERROR",response);fclose(f);return true;
+}
 void plat_desktop_scale(int percent) {}
 /* Exercise the same native HTTPS worker in integration tests. */
 #include <stdatomic.h>

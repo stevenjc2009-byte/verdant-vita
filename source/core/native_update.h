@@ -69,7 +69,7 @@ static bool vu_native_poll(VUNativeCheck *check) {
  if(!f) {
   if(plat_us()-check->started>45000000){vu_native_cancel(check);check->failed=true;strcpy(check->status,"Check timed out. Check Vita Wi-Fi and system date/time.");return true;}
   FILE *progress=fopen(VUN_HTTP ".progress","rb");
-  if(progress){char buffer[128]={0};size_t got=fread(buffer,1,sizeof(buffer)-1,progress);buffer[got]=0;fclose(progress);if(buffer[0])snprintf(check->status,sizeof(check->status),"Checking GitHub: %.120s",buffer);}
+  if(progress){char buffer[128]={0};size_t got=fread(buffer,1,sizeof(buffer)-1,progress);buffer[got]=0;fclose(progress);if(buffer[0]){char status[256];snprintf(status,sizeof(status),"Checking GitHub: %.120s",buffer);if(strcmp(status,check->status)){strcpy(check->status,status);return true;}}}
   return false;
  }
  size_t n=fread(result,1,sizeof(result)-1,f);result[n]=0;fclose(f);

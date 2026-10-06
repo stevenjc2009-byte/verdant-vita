@@ -98,6 +98,8 @@ bool plat_surface(plat_surf s, plat_fb_t *out) {
 
 #include "frame_worker.h"
 #include "native_http.h"
+#include "file_worker.h"
+#include "clock_policy.h"
 
 /* ---------------------------------------------------------------- touch -- */
 
@@ -163,7 +165,7 @@ bool plat_init(void) {
   if (fb_result < 0) return false;
   sceDisplayWaitVblankStart();
   vita_init_note("UI affinity core 0", sceKernelChangeThreadCpuAffinityMask(0, SCE_KERNEL_CPU_MASK_USER_0));
-  vita_init_note("display worker core 1 (sync fallback on error)", vita_display_start());
+  vita_init_note("display worker CPU3 if unlocked, otherwise core 1", vita_display_start());
 
   sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
   vita_touch_init();
@@ -172,7 +174,7 @@ bool plat_init(void) {
   caps.sensors = sceMotionStartSampling() >= 0;
 
   /* 444MHz */
-  caps.speedup = scePowerSetArmClockFrequency(444) >= 0;
+  caps.speedup = vita_cpu_floor(scePowerGetArmClockFrequency,scePowerSetArmClockFrequency);
 
   SceKernelSystemSwVersion sw;
   memset(&sw, 0, sizeof(sw));
@@ -197,6 +199,7 @@ bool plat_init(void) {
 }
 
 void plat_exit(void) {
+  vf_cleanup();
   vita_display_cleanup();
   vm_exit();
   if (caps.sensors) sceMotionStopSampling();
@@ -357,57 +360,7 @@ void plat_mutex_unlock(plat_mutex_t *m) {
 
 /* ------------------------------------------------------------------ net -- */
 
-static bool  net_up;
-static bool  net_ours;   /* we called sceNetInit, so we owe it a sceNetTerm */
-static void *net_pool;
-
-#define VITA_NET_POOL (1024 * 1024)
-
-static void vita_net_teardown(void) {
-  if (net_ours) { sceNetTerm(); net_ours = false; }
-  free(net_pool);
-  net_pool = NULL;
-}
-
-/* Joins whatever AP the user already set up in the vita's own settings.
-
-   Blocking: association plus DHCP takes seconds and this runs on whichever
-   thread asked for the device. */
-bool plat_net_init(void) {
-  if (net_up) return true;
-
-  if (sceSysmoduleLoadModule(SCE_SYSMODULE_NET) < 0) return false;
-
-  net_pool = malloc(VITA_NET_POOL);
-  if (!net_pool) return false;
-
-  /* If the shell already brought the stack up this fails exactly like a real
-     error would
-      */
-  SceNetInitParam p = { net_pool, VITA_NET_POOL, 0 };
-  net_ours = sceNetInit(&p) >= 0;
-
-  if (sceNetCtlInit() < 0) { vita_net_teardown(); return false; }
-
-  /* The console associates on its own, this just waits around for it */
-  for (int waited = 0; waited < 15000; waited += 50) {
-    int state = 0;
-    if (sceNetCtlInetGetState(&state) < 0) break;
-    if (state == SCE_NETCTL_STATE_CONNECTED) { net_up = true; return true; }
-    sceKernelDelayThread(50 * 1000);
-  }
-
-  sceNetCtlTerm();
-  vita_net_teardown();
-  return false;
-}
-
-void plat_net_exit(void) {
-  if (!net_up) return;
-  sceNetCtlTerm();
-  vita_net_teardown();
-  net_up = false;
-}
+#include "network_start.h"
 
 /* -------------------------------------------------------------- entropy -- */
 
@@ -565,6 +518,7 @@ int plat_hw_audio_write(const uint8_t *d, int l) {plat_mutex_lock(&vm_io_lock);i
 void plat_performance(plat_performance_t *out) {
   memset(out, 0, sizeof(*out));
   for (int i=0;i<4;i++) out->cores[i]=-1;
+  out->display_core=vita_display_core;
   out->cpu_mhz=scePowerGetArmClockFrequency();
   out->gpu_mhz=scePowerGetGpuClockFrequency();
   out->wifi_state=-1; out->signal=-1;

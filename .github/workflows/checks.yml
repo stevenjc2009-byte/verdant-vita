@@ -32,3 +32,21 @@ jobs:
           check_dir=$(mktemp -d)
           cd "$check_dir"
           /tmp/verdant-native-check-test
+      - name: Test Vita core, clock, native storage and small updates
+        run: |
+          gcc -O1 -g -fsanitize=address,undefined tests/vita_clock_test.c -o /tmp/verdant-clock-test
+          /tmp/verdant-clock-test
+          gcc -O1 -g -fsanitize=address,undefined tests/vita_network_start_test.c -o /tmp/verdant-network-test
+          /tmp/verdant-network-test
+          gcc -O1 -g -fsanitize=address,undefined tests/native_files_test.c -lpthread -o /tmp/verdant-files-test
+          files_dir=$(mktemp -d)
+          (cd "$files_dir" && /tmp/verdant-files-test)
+          gcc -O1 -g -fsanitize=address,undefined -DVERDANT_APPLY_VITA -Isource/core -Isource/platform/host tests/update_apply_test.c -lcrypto -o /tmp/verdant-apply-vita-test
+          ASAN_OPTIONS=detect_leaks=0 python3 tests/fast_update_test.py /tmp/verdant-apply-vita-test
+      - name: Test actual desktop touch and keyboard layouts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libcurl4-openssl-dev libssl-dev zlib1g-dev
+          gcc -O1 -g -fsanitize=address,undefined -DVERDANT_TEST_VITA -Isource/core -Isource/platform -Isource/platform/host -Ivendor/mini-rv32ima-mmu -Ivendor/ctr-osk-rt/include -Ivendor/ctr-osk-rt/source tests/desktop_test.c source/platform/host/plat.c vendor/ctr-osk-rt/source/ctrosk.c vendor/ctr-osk-rt/source/ctrosk_gfx.c -lcurl -lz -lcrypto -lpthread -lm -o /tmp/verdant-desktop-test
+          desktop_dir=$(mktemp -d)
+          (cd "$desktop_dir" && ASAN_OPTIONS=detect_leaks=0 /tmp/verdant-desktop-test)

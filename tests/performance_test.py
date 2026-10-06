@@ -11,4 +11,8 @@ cpu=float(next(line.split('|')[1] for line in b.splitlines() if line.startswith(
 assert 0<=cpu<=100
 memory=next(line.split('|') for line in b.splitlines() if line.startswith('MEM|'))
 assert int(memory[1])>=int(memory[2])>=0
+assert m.process_role('python3','python3 /mnt/vita/ux0/verdant/guest/verdant-agent.py')=='Desktop service: terminals and Linux files'
+assert m.process_role('syslogd','syslogd -n')=='System log collector'
+assert m.process_role('init','/sbin/init').startswith('Starts services')
+assert all(len(row.split('|'))==6 for row in b.splitlines() if row.startswith('PROC|'))
 print('Measured Linux CPU, memory, processes, network and disk counters passed.')

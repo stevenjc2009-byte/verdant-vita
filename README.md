@@ -1,10 +1,10 @@
-# Verdant Desktop for PS Vita — experimental 0.3.1
+# Verdant Desktop for PS Vita — experimental 0.3.2
 
-Install the full **Verdant-PS-Vita-v0.3.1.vpk** with VitaShell, replacing the existing Verdant application. Launch its bubble and wait for automatic first-launch setup. No separate ZIP extraction is required. Keep at least 500 MB free, preferably 1 GB. Existing Linux files, preferences and shell history are preserved. Local Buildroot login: **root**, empty password unless you changed it.
+Install the full **Verdant-PS-Vita-v0.3.2.vpk** with VitaShell, replacing the existing Verdant application. Launch its bubble and wait for automatic first-launch setup. No separate ZIP extraction is required. Keep at least 500 MB free, preferably 1 GB. Existing Linux files, preferences and shell history are preserved. Local Buildroot login: **root**, empty password unless you changed it.
 
 Version 0.3.0 added a 150% default desktop size, saved global scaling from 100% to 200%, graphical Settings cards, and a Processes/Performance task manager. Its Vita hardware pages use measured kernel idle clocks, current CPU/GPU clock queries, free memory pools, heap usage, Wi-Fi state/signal and ux0 capacity. Linux process/RAM/network/disk counters are separate. Unsupported GPU utilization, memory clock/type, base frequency and physical drive/link speeds show unavailable.
 
-Version 0.3.0 reduces pointer-only redraws to the cursor area, accelerates rectangle fills, removes long terminal rendering locks and pipelines frame transfer on a separate CPU core. UI/input use core 0, display/media core 1 and Linux emulation core 2. The fourth core remains reserved for the system; the interpreted guest still has one virtual CPU. Host pixel/cursor and concurrent handoff tests pass, but physical Vita performance needs confirmation.
+Version 0.3.0 reduces pointer-only redraws to the cursor area, accelerates rectangle fills, removes long terminal rendering locks and pipelines frame transfer on a separate CPU core. UI/input use core 0, display/media core 1 and Linux emulation core 2. From 0.3.2 the display worker also tries CPU 3 when unlocked; the interpreted guest still has one virtual CPU. Host pixel/cursor and concurrent handoff tests pass, but physical Vita performance needs confirmation.
 
 Version 0.2.6 supplies Vita-specific storage paths, controls, keyboard help, sensor identification and hardware settings. The earlier startup display failure and desktop flashing fixes remain included. Console testing of the new profile is still needed.
 
@@ -30,3 +30,21 @@ Calculator now has actual mouse/touch buttons, memory and history, with Standard
 **System update → Check now** starts the native verified HTTPS worker directly, without waiting for Linux boot or Python initialization. It has connection/download/error feedback, immediate cancellation and a 45-second check deadline. Download/staging still uses the Linux service for archive/hash checks; fresh check metadata is reused to avoid a second GitHub request. The download bar shows byte progress when the server provides a length. Existing user files are preserved.
 
 An installed 0.3.0 updater uses its old code until this update is applied. Use Download in that version once, or install the full version-named VPK in VitaShell if the old updater stalls. Exit with Start, relaunch to apply, and launch again after the update message.
+
+## New in Vita 0.3.2
+
+Vita finger input targets application buttons directly, independently of the joystick cursor. Drag/resize also uses finger coordinates. The optional relative pad works on empty desktop space; app controls, launcher and keyboard stay direct touch. The cursor hides during a touch. The left stick has one-third of its former maximum speed and a quadratic precision curve near center.
+
+The Terminal toolbar now has a **Keyboard** button. Its replacement keyboard uses a larger QWERTY layout, wide Shift/Enter/Space/Backspace keys, numbers, punctuation, Ctrl/Alt/Escape and navigation keys, without function keys. New terminals start Bash directly with a small startup file, preserved history and user `.bashrc`, rather than automatically running neofetch. `neofetch` and `bash -l` remain available manually.
+
+Task Manager puts process names on the left, then CPU %, RAM MiB and PID, with an explanation derived from the actual program and script. Per-process GPU/network throughput is labeled unavailable. Core 2 runs the one-vCPU RV32 interpreter; the native desktop is C code, while Python handles Linux bridge/background services. Physical core percentages and guest process CPU percentages measure different work.
+
+The display worker tries CPU 3 (CapUnlocker) and falls back to CPU 1 when denied. Task Manager reports its selected core. The CPU clock policy preserves clocks at 444 MHz or higher, including a user-selected 500 MHz clock. It does not force an unsupported overclock. Independent native work uses multiple physical cores; the guest remains one virtual CPU.
+
+Supported ux0 file listing, small text open/save, mkdir, file copy and move/rename run on an asynchronous native worker. Linux-only paths, directory copy, search/trash and other complex operations still use the guest. Document saves retain the previous file before committing because Vita rename is not an atomic replacement. An interrupted `.verdant-save-backup` or `.verdant-save-part` remains recoverable.
+
+Idle half-second redraws are removed. Covered windows and unchanged job output do not trigger unnecessary painting. Cursor-only transfer/scaling uses damage regions across both alternating buffers. Graph samples and scale maps are cached. Quiet guest services poll at 10 Hz rather than keeping every idle terminal at 50 Hz. Native HTTPS retains DNS/TLS/connection caches. Networking starts without a 15-second Wi-Fi association wait.
+
+The release retains the full compatible `verdant-vita-update.zip`. An installed 0.3.1 updater uses that package once. Once 0.3.2 is running, later same-runtime releases can use `verdant-vita-fast-update.zip` and reuse Image only after native hash validation, avoiding another roughly 56 MB runtime download. The standalone VPK remains self-contained.
+
+VitaSDK builds and sanitized host/regression tests pass. The actual RV32 Linux guest starts an interactive fast terminal and returns process roles on the host fixture. The prompt appeared in 0.414 seconds on that PC fixture, not a measured Vita time. Physical FPS, touch accuracy, post-update CPU load and CapUnlocker behavior still require console testing.

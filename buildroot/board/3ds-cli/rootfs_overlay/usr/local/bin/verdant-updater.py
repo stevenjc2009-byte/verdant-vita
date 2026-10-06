@@ -3,7 +3,7 @@
 import os,re,sys,time
 from pathlib import Path,PurePosixPath
 
-VERSION='0.3.1'
+VERSION='0.3.2'
 REPOS={'3ds':'stevenjc2009-byte/verdant-3ds','vita':'stevenjc2009-byte/verdant-vita'}
 LIMIT=160*1024*1024
 RUNTIME=Path(os.environ.get('VERDANT_RUNTIME',str(Path(__file__).resolve().parent.parent)))
@@ -133,7 +133,14 @@ def stage(package,platform,tag,asset_digest=None):
         selected=[n for n in manifest if allowed(n,platform)]
         required={'verdant/Image','verdant/guest/verdant-updater.py','verdant/guest/github-ca.pem'}
         required.add('verdant.vpk' if platform=='vita' else '3ds/verdant/verdant.3dsx')
-        if not required.issubset(selected):raise ValueError('Incomplete update package')
+        reuse=meta.get('reuse',{})
+        if reuse:
+            if platform!='vita' or set(reuse)!={'verdant/Image'} or 'verdant/Image' in selected or not re.fullmatch('[0-9a-f]{64}',reuse['verdant/Image']):raise ValueError('Invalid reused runtime manifest')
+            if not (RUNTIME/'Image').is_file():raise ValueError('Runtime is absent; install the full standalone VPK')
+            # Native apply checks this Image hash before changing ANY target.
+            records.append((reuse['verdant/Image'],'verdant/Image'))
+            print('Reusing Linux Image; native SHA-256 is checked before installation.',flush=True)
+        if not required.issubset(set(selected)|set(reuse)):raise ValueError('Incomplete update package')
         for index,n in enumerate(selected):
             print('Unpacking %d/%d: %s'%(index+1,len(selected),n),flush=True)
             if not re.fullmatch('[0-9a-f]{64}',manifest[n]):raise ValueError('Invalid digest')
@@ -181,6 +188,8 @@ def main():
     if action=='check':return
     if action!='stage':raise ValueError('Unknown updater action')
     expected='verdant-'+platform+'-update.zip'
+    fast='verdant-vita-fast-update.zip'
+    if platform=='vita' and (RUNTIME/'Image').is_file() and any(a['name']==fast for a in release['assets']):expected=fast
     asset=next((a for a in release['assets'] if a['name']==expected),None)
     if not asset:raise ValueError('Release is missing '+expected)
     if asset['size']>LIMIT:raise ValueError('Update exceeds size limit')

@@ -38,7 +38,7 @@ Major unfinished work: local Linux GUI runtime, package repository, graphical SC
 
 ## Vita 0.3.0 desktop and performance
 
-Global saved desktop scaling (100/125/150/175/200 percent, default 150) covers fonts, controls, taskbar, windows, pointer and keyboard. Settings has touchable graphical cards. Task Manager supplies processes and performance categories with CPU core history and guest RAM/network graphs. Vita CPU/GPU current clocks, core utilization (if kernel query succeeds), user/CDRAM free pools, application heap, Wi-Fi state/signal and ux0 capacity use native APIs. Linux guest CPU, RAM, processes and network/disk rates use /proc. GPU utilization, memory type/speed, base CPU frequency and physical link/storage throughput are not exposed and are labeled unavailable. The four physical core charts include the system core for observation only; the guest remains single-vCPU.
+Global saved desktop scaling (100/125/150/175/200 percent, default 150) covers fonts, controls, taskbar, windows, pointer and keyboard. Settings has touchable graphical cards. Task Manager supplies processes and performance categories with CPU core history and guest RAM/network graphs. Vita CPU/GPU current clocks, core utilization (if kernel query succeeds), user/CDRAM free pools, application heap, Wi-Fi state/signal and ux0 capacity use native APIs. Linux guest CPU, RAM, processes and network/disk rates use /proc. GPU utilization, memory type/speed, base CPU frequency and physical link/storage throughput are not exposed and are labeled unavailable. The four physical core charts include system activity; from 0.3.2 the display worker can also use CPU 3 when unlocked; the guest remains single-vCPU.
 
 ## Vita 0.3.1 additions
 
@@ -47,3 +47,21 @@ Global saved desktop scaling (100/125/150/175/200 percent, default 150) covers f
 - Native GitHub release check without guest Python, bounded timeout/cancellation, graphical updater states and download progress, fresh metadata reuse. Installation/staging preserves the existing recovery protocol.
 
 This is a lightweight native application set, not Windows Calculator or the Windows Notepad executable. Console interaction and download speeds still need physical Vita validation.
+
+## New in Vita 0.3.2
+
+Vita finger input targets application buttons directly, independently of the joystick cursor. Drag/resize also uses finger coordinates. The optional relative pad works on empty desktop space; app controls, launcher and keyboard stay direct touch. The cursor hides during a touch. The left stick has one-third of its former maximum speed and a quadratic precision curve near center.
+
+The Terminal toolbar now has a **Keyboard** button. Its replacement keyboard uses a larger QWERTY layout, wide Shift/Enter/Space/Backspace keys, numbers, punctuation, Ctrl/Alt/Escape and navigation keys, without function keys. New terminals start Bash directly with a small startup file, preserved history and user `.bashrc`, rather than automatically running neofetch. `neofetch` and `bash -l` remain available manually.
+
+Task Manager puts process names on the left, then CPU %, RAM MiB and PID, with an explanation derived from the actual program and script. Per-process GPU/network throughput is labeled unavailable. Core 2 runs the one-vCPU RV32 interpreter; the native desktop is C code, while Python handles Linux bridge/background services. Physical core percentages and guest process CPU percentages measure different work.
+
+The display worker tries CPU 3 (CapUnlocker) and falls back to CPU 1 when denied. Task Manager reports its selected core. The CPU clock policy preserves clocks at 444 MHz or higher, including a user-selected 500 MHz clock. It does not force an unsupported overclock. Independent native work uses multiple physical cores; the guest remains one virtual CPU.
+
+Supported ux0 file listing, small text open/save, mkdir, file copy and move/rename run on an asynchronous native worker. Linux-only paths, directory copy, search/trash and other complex operations still use the guest. Document saves retain the previous file before committing because Vita rename is not an atomic replacement. An interrupted `.verdant-save-backup` or `.verdant-save-part` remains recoverable.
+
+Idle half-second redraws are removed. Covered windows and unchanged job output do not trigger unnecessary painting. Cursor-only transfer/scaling uses damage regions across both alternating buffers. Graph samples and scale maps are cached. Quiet guest services poll at 10 Hz rather than keeping every idle terminal at 50 Hz. Native HTTPS retains DNS/TLS/connection caches. Networking starts without a 15-second Wi-Fi association wait.
+
+The release retains the full compatible `verdant-vita-update.zip`. An installed 0.3.1 updater uses that package once. Once 0.3.2 is running, later same-runtime releases can use `verdant-vita-fast-update.zip` and reuse Image only after native hash validation, avoiding another roughly 56 MB runtime download. The standalone VPK remains self-contained.
+
+VitaSDK builds and sanitized host/regression tests pass. The actual RV32 Linux guest starts an interactive fast terminal and returns process roles on the host fixture. The prompt appeared in 0.414 seconds on that PC fixture, not a measured Vita time. Physical FPS, touch accuracy, post-update CPU load and CapUnlocker behavior still require console testing.

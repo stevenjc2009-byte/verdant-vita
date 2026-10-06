@@ -72,6 +72,16 @@ static void capture_desktop(const char *name) {
 }
 int main(void) {
 #ifdef PLAT_VITA
+ if(getenv("VERDANT_FILES_ONLY")) {
+  assert(plat_init());plat_mutex_init(&ui_lock);cfg_defaults(&g_cfg);term_init(&term_state);vd_init();
+  int slot=vd_new(VD_FILES);assert(slot>=0);VDWindow *w=&vd.windows[slot];vd.last_poll=0;vd_poll_bridge();assert(!w->pending && strstr(w->text,"D verdant"));
+  int editor=vd_new(VD_EDIT);assert(editor>=0);w=&vd.windows[editor];
+  uint64_t begin=plat_us();vd_request(w,"write","/mnt/vita/ux0/native-test.txt","native without Linux",NULL,NULL);vd.last_poll=0;vd_poll_bridge();assert(!w->pending);
+  vd_request(w,"read","/mnt/vita/ux0/native-test.txt",NULL,NULL,NULL);vd.last_poll=0;vd_poll_bridge();assert(!w->pending && !strcmp(w->text,"native without Linux"));
+  printf("Native Files/Notepad round trip without Linux: %.3f ms\n",(plat_us()-begin)/1000.0);return 0;
+ }
+#endif
+#ifdef PLAT_VITA
   if(getenv("VERDANT_CHECK_ONLY")) {
     assert(plat_init());cfg_defaults(&g_cfg);term_init(&term_state);vd_init();plat_http_start();
     VUNativeCheck check={0};uint64_t begin=plat_us();assert(vu_native_start(&check));
@@ -92,11 +102,15 @@ int main(void) {
   int fine_distance = 0, coarse_distance = 0;
   for (int i = 0; i < 100; i++) fine_distance += vd_pointer_step(128, 10000, &fine);
   for (int i = 0; i < 20; i++) coarse_distance += vd_pointer_step(128, 50000, &coarse);
+  #ifdef PLAT_VITA
+  assert(fine_distance == VD_W / 2);
+#else
   assert(fine_distance == VD_W * 3 / 2);
+#endif
   assert(coarse_distance == fine_distance);
   fine = 0;
   int gentle = 0;
-  for (int i = 0; i < 100; i++) gentle += vd_pointer_step(1, 10000, &fine);
+  for (int i = 0; i < 100; i++) gentle += vd_pointer_step(16, 10000, &fine);
   assert(gentle > 0); /* Slow movement must not disappear through truncation. */
   vd_pointer_step(0, 10000, &fine);
   assert(fine == 0);
@@ -110,6 +124,9 @@ int main(void) {
   plat_surface(PLAT_SURF_PANEL, &vd.fb[1]);
   vd.ui_scale=100;
   raster_test();
+  vd.windows[1]=(VDWindow){.used=true,.x=10,.y=10,.w=100,.h=100};vd.windows[2]=(VDWindow){.used=true,.x=0,.y=0,.w=120,.h=120};vd.focused=2;
+  assert(vd_window_obscured(1));vd.windows[2].minimized=true;assert(!vd_window_obscured(1));vd.windows[1].used=vd.windows[2].used=false;vd.focused=0;
+  vd.active=true;vd.dirty=false;vd.pointer_dirty=false;vd.rendered_minute=plat_wallclock_ms()/60000;vd.last_render=0;vd_render();assert(vd.last_render==0); /* No unchanged full-frame redraw on a half-second timer. */
   FILE *profile = fopen(VD_BRIDGE "platform.txt", "rb");
   assert(profile);
   char slug[16]; assert(fgets(slug, sizeof(slug), profile)); fclose(profile);
@@ -160,8 +177,13 @@ int main(void) {
   desktop_input_byte(13);
   assert(c->calc.error[0]);
   vd.keyboard = true;
+#ifdef PLAT_VITA
+  vd.shift=true;vd_keyboard_layout();
+  for(int i=0;i<vk_count;i++)if(vk_buttons[i].code=='2')vd_keyboard_click(vk_buttons[i].x+1,vk_buttons[i].y+1);
+#else
   vd.symbols = true;
   vd_keyboard_click(VD_PANEL_X + PLAT_PANEL_W/10 + 1, PLAT_TERM_H + 30);
+#endif
   assert(strchr(c->calc.expression, '@'));
   vd.keyboard = false;
   c->calc.done=false;calculator_tap(c,"CE");calculator_tap(c,"2");calculator_tap(c,"+");calculator_tap(c,"3");calculator_tap(c,"=");assert(!strcmp(c->calc.answer,"5"));
@@ -179,6 +201,22 @@ int main(void) {
       if(percent==150) {char screenshot[64];snprintf(screenshot,sizeof(screenshot),"calculator-%d-150.ppm",mode);c->calc.graph_edit=false;vd.dirty=true;vd.last_render=0;vd_render();capture_desktop(screenshot);}
     }
   }
+#ifdef PLAT_VITA
+  for(int scale=100;scale<=200;scale+=25) {
+    vd_change_scale(scale-vd.ui_scale);vd_keyboard_layout();
+    assert(vk_count>60);
+    for(int k=0;k<vk_count;k++){VKButton *b=&vk_buttons[k];assert(b->x>=0&&b->x+b->w<=VD_W&&b->y>=vd_keyboard_top()&&b->y+b->h<=VD_H);assert(b->h*scale/100>=40);}
+  }
+  vd_change_scale(150-vd.ui_scale);vd.keyboard=true;vd.dirty=true;vd.last_render=0;vd_render();capture_desktop("keyboard-150.ppm");vd.keyboard=false;
+  vd.touchpad=true;vd.focused=calc;c->x=12;c->y=28;c->w=VD_W-24;c->h=VD_H-58;vc_mode(&c->calc,VC_STANDARD);
+  vd_calculator_layout(c,c->x+5,c->y+21,c->w-10,c->h-27);
+  VCB tap={0};for(int i=0;i<vc_button_count;i++)if(!strcmp(vc_buttons[i].label,"CE"))tap=vc_buttons[i];
+  strcpy(c->calc.expression,"123");vd.px=4;vd.py=4;
+  int tx=tap.x+tap.w/2,ty=tap.y+tap.h/2;
+  plat_input_t finger={.ptr_down=true,.ptr_tapped=true,.ptr_x=tx*150/100,.ptr_y=ty*150/100-PLAT_TERM_H};
+  vd_update(&finger);assert(!strcmp(c->calc.expression,"0"));assert(vd.px==4&&vd.py==4);assert(vd.touch_active);
+  finger.ptr_down=finger.ptr_tapped=false;vd_update(&finger);assert(!vd.touch_active);vd.touchpad=false;
+#endif
   vd_change_scale(100-vd.ui_scale);
   int terminal = vd_new(VD_TERM);
   VDWindow *t = &vd.windows[terminal];

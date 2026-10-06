@@ -21,6 +21,8 @@ typedef struct {
  char history[VC_HISTORY][384];int history_count;
  char date[2][11],days[16];
  double rates[8];char rates_date[16],rates_status[96];
+ char graph_cached_expr[256];int graph_cached_w,graph_cached_h;bool graph_cached_degrees;
+ double graph_cached_x,graph_cached_y,graph_cached_span;int16_t graph_points[960];unsigned graph_samples;
 } VCState;
 static const char *vc_currencies[]={"EUR","GBP","USD","CAD","JPY","AUD","CHF","CNY"};
 typedef struct {const char *p;bool error,degrees;int depth;double x;} VCFParser;
@@ -87,6 +89,13 @@ static bool vc_real(const char *expr,bool degrees,double x,double *out) {
  VCFParser p={.p=expr,.degrees=degrees,.x=x};double n=vc_fsum(&p);vc_space(&p.p);
  if(p.error || *p.p || !isfinite(n))return false;
  *out=n;return true;
+}
+/* Cache plot samples until expression, viewport or canvas changes. */
+static void vc_graph_prepare(VCState *c,int width,int height) {
+ if(width<2 || width>960 || height<1)return;
+ if(c->graph_cached_w==width && c->graph_cached_h==height && c->graph_cached_degrees==c->degrees && c->graph_cached_x==c->graph_x && c->graph_cached_y==c->graph_y && c->graph_cached_span==c->graph_span && !strcmp(c->graph_cached_expr,c->expression))return;
+ strcpy(c->graph_cached_expr,c->expression);c->graph_cached_w=width;c->graph_cached_h=height;c->graph_cached_degrees=c->degrees;c->graph_cached_x=c->graph_x;c->graph_cached_y=c->graph_y;c->graph_cached_span=c->graph_span;c->graph_samples++;
+ for(int x=0;x<width;x++){double fx=c->graph_x+(2.0*x/(width-1)-1)*c->graph_span,fy;bool ok=vc_real(c->expression,c->degrees,fx,&fy);double y=ok?(c->graph_y+c->graph_span-fy)*height/(2*c->graph_span):-1;c->graph_points[x]=ok && y>=0 && y<height?(int16_t)y:-1;}
 }
 /* Unsigned word arithmetic never passes through floating point. */
 typedef struct {const char *p;int base,depth;uint64_t mask;bool error;} VCIntegerParser;

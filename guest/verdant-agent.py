@@ -48,6 +48,9 @@ def terminal(sid, command='/bin/bash -l'):
     if pid == 0:
         os.chdir(HOME)
         os.environ.update(TERM='xterm-256color', HISTFILE=str(HOME / '.bash_history'))
+        if command == '/bin/bash -l':
+            rc=Path(__file__).with_name('verdant-bashrc.txt')
+            if rc.is_file():os.execv('/bin/bash',['bash','--noprofile','--rcfile',str(rc),'-i'])
         os.execv('/bin/sh', ['sh', '-c', command])
     os.set_blocking(master, False)
     fcntl.ioctl(master,termios.TIOCSWINSZ,struct.pack('HHHH',30,80,0,0))
@@ -230,9 +233,11 @@ def dispatch(op, a, rid):
     raise ValueError('Unsupported operation: ' + op)
 
 def tick():
+    active=False
     # Native HTTPS has its own host-http.req mailbox in this directory.
     requests=(p for p in BASE.glob('*.req') if p.stem.isascii() and p.stem.isdigit())
     for req in sorted(requests, key=lambda p: int(p.stem))[:8]:
+        active=True
         rid = req.stem
         try:
             lines = req.read_text().splitlines()
@@ -250,6 +255,7 @@ def tick():
             with open(path, 'rb') as f:
                 f.seek(session['offset']); data = f.read(4096)
             if data:
+                active=True
                 sent = os.write(session['fd'], data)
                 session['offset'] += sent
         except (FileNotFoundError, BlockingIOError): pass
@@ -260,6 +266,7 @@ def tick():
         try:
             data = os.read(key.fd, 4096)
             if not data: stop_session(key.data); continue
+            active=True
             with open(session['out'], 'ab') as f: f.write(data)
         except BlockingIOError: pass
         except OSError: stop_session(key.data)
@@ -275,6 +282,8 @@ def tick():
                     with open(BASE / f"job-{next(k for k,v in jobs.items() if v is job)}.out",'ab') as f:f.write(b'\nDestination appeared; downloaded .part retained\n')
                 else:job['temp'].rename(job['target'])
 
+    return active
+
 def main():
     BASE.mkdir(parents=True, exist_ok=True)
     # Old mailbox inputs must never be replayed into a new shell.
@@ -282,7 +291,8 @@ def main():
     atomic(BASE / 'ready', 'Verdant bridge 1\n')
     try:
         while True:
-            tick(); time.sleep(0.1)
+            # Quiet shells do not need a permanent 50 Hz Python polling loop.
+            time.sleep(0.02 if tick() else 0.10)
     finally:
         for sid in list(sessions): stop_session(sid)
         (BASE / 'ready').unlink(missing_ok=True)

@@ -1,0 +1,9 @@
+# Fast interactive terminal: system information remains available via neofetch.
+export TERM=xterm-256color
+export HISTFILE="$HOME/.bash_history"
+HISTSIZE=2000
+HISTFILESIZE=4000
+shopt -s histappend checkwinsize
+PS1='\[\033[32m\]\u@\h\[\033[0m\]:\w\$ '
+# Keep the user's own interactive customization.
+if [ -r "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi

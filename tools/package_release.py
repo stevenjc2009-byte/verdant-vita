@@ -6,14 +6,14 @@ out=project.parent
 def package(platform):
     files={'verdant/Image':project/'Image'}
     for f in (project/'guest').iterdir():
-        if f.suffix in ('.py','.txt','.pem'):files['verdant/guest/'+f.name]=f
+        if f.suffix in ('.py','.txt','.pem') or f.name=='verdant-bashrc':files['verdant/guest/'+f.name]=f
     if platform=='3ds':
         files.update({'3ds/verdant/verdant.3dsx':project/'verdant.3dsx','3ds/verdant/verdant.smdh':project/'verdant.smdh','cias/verdant.cia':project/'verdant.cia'})
     else:files['verdant.vpk']=project/'dist/vita/verdant.vpk'
     for name in ('README.md','FEATURE-STATUS.md','TEST-RESULTS.md','RESEARCH.md','SOURCE-VERSIONS.md','LICENSE','VITA.md','UPDATES.md'):
         if (project/name).exists():files['docs/'+name]=project/('README-VITA.md' if platform=='vita' and name=='README.md' else name)
     for name in ('manage_install.py','update_install.py'):files['tools/'+name]=project/'tools'/name
-    manifest={'version':'0.3.1','platform':platform,'sha256':{n:hashlib.sha256(p.read_bytes()).hexdigest() for n,p in files.items()}}
+    manifest={'version':'0.3.2','platform':platform,'sha256':{n:hashlib.sha256(p.read_bytes()).hexdigest() for n,p in files.items()}}
     dest=out/f'verdant-{platform}-update.zip'
     with zipfile.ZipFile(dest,'w',zipfile.ZIP_DEFLATED) as z:
         for name,path in files.items():z.write(path,name)
@@ -22,8 +22,19 @@ def package(platform):
         assert z.testzip() is None
         for name,digest in manifest['sha256'].items():assert hashlib.sha256(z.read(name)).hexdigest()==digest
     print('Validated install ZIP:',dest)
+    if platform=='vita':
+        small={n:path for n,path in files.items() if n!='verdant/Image'}
+        meta={'version':manifest['version'],'platform':platform,'reuse':{'verdant/Image':manifest['sha256']['verdant/Image']},'sha256':{n:manifest['sha256'][n] for n in small}}
+        fast=out/'verdant-vita-fast-update.zip'
+        with zipfile.ZipFile(fast,'w',zipfile.ZIP_DEFLATED) as z:
+            for name,path in small.items():z.write(path,name)
+            z.writestr('manifest.json',json.dumps(meta,indent=2)+'\n')
+        with zipfile.ZipFile(fast) as z:
+            assert z.testzip() is None
+            for name,digest in meta['sha256'].items():assert hashlib.sha256(z.read(name)).hexdigest()==digest
+        print('Validated small future-update ZIP:',fast,fast.stat().st_size,'bytes')
 def source():
-    dest=out/'verdant-source-0.3.1.zip'
+    dest=out/'verdant-source-0.3.2.zip'
     excluded={'.git','build','build-vita','dist','__pycache__','.github'}
     with zipfile.ZipFile(dest,'w',zipfile.ZIP_DEFLATED) as z:
         for f in project.rglob('*'):

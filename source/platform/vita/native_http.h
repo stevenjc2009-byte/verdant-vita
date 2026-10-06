@@ -5,6 +5,7 @@
 static atomic_bool vita_http_stop;
 static SceUID vita_http_thread=-1;
 static uint64_t vita_http_progress_tick;
+static CURL *vita_http_client;
 static size_t vita_http_received;
 static bool vita_http_url(const char *url) {
   if(!strcmp(url,"https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"))return true;
@@ -51,9 +52,9 @@ static void vita_http_process(void) {
   if(!read) { vita_http_result("ERROR\nMissing URL");return; }
   url[strcspn(url,"\r\n")]=0;
   remove(VH_BASE ".res");remove(VH_BASE ".data");
-  CURL *curl=curl_easy_init();FILE *out=fopen(VH_BASE ".data.part","wb");
+  CURL *curl=vita_http_client;FILE *out=fopen(VH_BASE ".data.part","wb");
   if(!curl || !out) {
-    if(curl)curl_easy_cleanup(curl);
+
     if(out)fclose(out);
     vita_http_result("ERROR\nNative HTTPS allocation failed");return;
   }
@@ -69,7 +70,7 @@ static void vita_http_process(void) {
     curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,1L);
     curl_easy_setopt(curl,CURLOPT_SSL_VERIFYHOST,2L);
     curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,0L);
-    curl_easy_setopt(curl,CURLOPT_USERAGENT,"Verdant-Vita/0.3.1");
+    curl_easy_setopt(curl,CURLOPT_USERAGENT,"Verdant-Vita/0.3.2");
     curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT,20L);
     curl_easy_setopt(curl,CURLOPT_TIMEOUT,600L);
     curl_easy_setopt(curl,CURLOPT_LOW_SPEED_TIME,30L);
@@ -88,7 +89,7 @@ static void vita_http_process(void) {
     strcpy(url,redirect);
   }
   bool good=!ferror(out) && !fflush(out);if(fclose(out))good=false;
-  curl_easy_cleanup(curl);
+
   if(rc==CURLE_OK && status==200 && good && !rename(VH_BASE ".data.part",VH_BASE ".data"))vita_http_result("OK\n");
   else {
     remove(VH_BASE ".data.part");char message[384];
@@ -104,11 +105,12 @@ void plat_http_start(void) {
   if(vita_http_thread>=0)return;
   remove(VH_BASE ".enabled");
   if(curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK)return;
+  vita_http_client=curl_easy_init();if(!vita_http_client)return;
   atomic_store(&vita_http_stop,false);
   remove(VH_BASE ".req");remove(VH_BASE ".busy");remove(VH_BASE ".cancel");remove(VH_BASE ".res");
   SceUID thread=sceKernelCreateThread("verdant_https",vita_http_entry,0x10000110,131072,0,SCE_KERNEL_CPU_MASK_USER_1,NULL);
-  if(thread<0)return;
-  if(sceKernelStartThread(thread,0,NULL)<0) { sceKernelDeleteThread(thread);return; }
+  if(thread<0){curl_easy_cleanup(vita_http_client);vita_http_client=NULL;return;}
+  if(sceKernelStartThread(thread,0,NULL)<0) { sceKernelDeleteThread(thread);curl_easy_cleanup(vita_http_client);vita_http_client=NULL;return; }
   vita_http_thread=thread;
   FILE *f=fopen(VH_BASE ".enabled","wb");if(f) { fputs("1\n",f);fclose(f); }
 }
@@ -116,5 +118,6 @@ void plat_http_stop(void) {
   if(vita_http_thread<0)return;
   atomic_store(&vita_http_stop,true);
   sceKernelWaitThreadEnd(vita_http_thread,NULL,NULL);sceKernelDeleteThread(vita_http_thread);vita_http_thread=-1;
+  curl_easy_cleanup(vita_http_client);vita_http_client=NULL;
   remove(VH_BASE ".enabled");
 }

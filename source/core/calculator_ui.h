@@ -125,13 +125,9 @@ static void vd_calculator_draw(VDWindow *w,int x,int y,int width,int height) {
    int zero_x=(int)((-c->graph_x/c->graph_span+1)*gw/2),zero_y=(int)((c->graph_y/c->graph_span+1)*gh/2);
    if(zero_x>=0 && zero_x<gw)vd_rect(gx+zero_x,gy,1,gh,0x607e66);
    if(zero_y>=0 && zero_y<gh)vd_rect(gx,gy+zero_y,gw,1,0x607e66);
-   bool previous=false;int py=0;
-   for(int px=0;px<gw;px++) {
-    double fx=c->graph_x+(2.0*px/(gw-1)-1)*c->graph_span,fy;
-    bool valid=vc_real(c->expression,c->degrees,fx,&fy);
-    double screen_y=valid?(c->graph_y+c->graph_span-fy)*gh/(2*c->graph_span):-1;
-    if(!valid || screen_y<0 || screen_y>=gh){previous=false;continue;}
-    int yy=(int)screen_y;
+   vc_graph_prepare(c,gw,gh);bool previous=false;int py=0;
+   for(int px=0;px<gw && px<960;px++) {
+    int yy=c->graph_points[px];if(yy<0){previous=false;continue;}
     if(previous && abs(yy-py)<gh/3)vd_calculator_line(gx+px-1,gy+py,gx+px,gy+yy,VD_ACCENT);
     else vd_px(gx+px,gy+yy,VD_ACCENT);
     py=yy;previous=true;

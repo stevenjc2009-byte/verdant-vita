@@ -453,11 +453,14 @@ int plat_hw_audio_write(const uint8_t *data, int len);
 int plat_update_title(const char *package);
 
 #ifdef PLAT_VITA
+typedef struct {int x,y,w,h;} plat_damage_t;
+void plat_present_regions(const plat_damage_t regions[2]);
 void plat_desktop_scale(int percent);
+bool plat_files_request(unsigned id,const char *op,const char *a,const char *b);
 void plat_http_start(void);
 void plat_http_stop(void);
 typedef struct {
-  int cpu_mhz, gpu_mhz, cpu_valid, cores[4], active_mask;
+  int cpu_mhz, gpu_mhz, cpu_valid, cores[4], active_mask, display_core;
   int memory_valid, free_user, free_cdram, heap_used, heap_total;
   int wifi_state, signal; unsigned long long storage_total, storage_free;
 } plat_performance_t;

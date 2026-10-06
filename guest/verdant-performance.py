@@ -2,9 +2,25 @@
 import os,time
 from pathlib import Path
 _last=None
+_roles={}
+
+def process_role(name, command):
+    """Describe the actual program/arguments, never infer a role from a PID."""
+    if 'verdant-agent.py' in command:return 'Desktop service: terminals and Linux files'
+    if 'verdant-updater.py' in command:return 'Updater: checks, downloads and verifies'
+    if 'verdant-currency.py' in command:return 'Calculator: downloads currency rates'
+    if 'verdant-vnc.py' in command:return 'Remote desktop connection'
+    return {'syslogd':'System log collector','klogd':'Kernel log collector',
+            'init':'Starts services and cleans up exited processes',
+            'bash':'Interactive terminal shell','sh':'Shell or startup script',
+            'dropbear':'SSH server or connection','sshd':'SSH server',
+            'ssh':'Connection to another computer','wget':'File download',
+            'udhcpc':'Obtains a network address','getty':'Console login prompt',
+            'python3':'Python program (script not identified)',
+            'python':'Python program (script not identified)'}.get(name,'Linux program or kernel worker')
 
 def sample():
-    global _last
+    global _last,_roles
     now=time.monotonic()
     ticks=os.sysconf('SC_CLK_TCK'); page=os.sysconf('SC_PAGE_SIZE')//1024
     cpu=list(map(int,Path('/proc/stat').read_text().splitlines()[0].split()[1:9]))
@@ -25,8 +41,16 @@ def sample():
         if not entry.name.isdigit():continue
         try:
             stat=(entry/'stat').read_text();end=stat.rfind(')');v=stat[end+2:].split()
-            processes[int(entry.name)]=(int(v[11])+int(v[12]),max(0,int(v[21]))*page,stat[stat.find('(')+1:end].replace('|','?').replace('\n','?'))
+            name=stat[stat.find('(')+1:end].replace('|','?').replace('\n','?')
+            pid=int(entry.name);identity=(int(v[19]),name)
+            cached=_roles.get(pid)
+            if not cached or cached[0]!=identity:
+                try:command=(entry/'cmdline').read_bytes()[:1024].replace(b'\0',b' ').decode(errors='replace')
+                except OSError:command=''
+                cached=(identity,process_role(name,command));_roles[pid]=cached
+            processes[pid]=(int(v[11])+int(v[12]),max(0,int(v[21]))*page,name,cached[1])
         except (OSError,ValueError,IndexError):pass
+    _roles={pid:role for pid,role in _roles.items() if pid in processes}
     usage=-1; rates=[-1]*4
     if _last:
         before=_last;dt=now-before['time'];total=sum(cpu)-sum(before['cpu'])
@@ -38,12 +62,12 @@ def sample():
           'NET|%.1f|%.1f'%tuple(rates[:2]),'DISK|%.1f|%.1f|%d|%d'%(rates[2],rates[3],fs.f_blocks*fs.f_frsize,fs.f_bavail*fs.f_frsize),
           'PROCESSES|%d'%len(processes)]
     scored=[]
-    for pid,(clock,rss,name) in processes.items():
+    for pid,(clock,rss,name,role) in processes.items():
         percent=-1
         if _last and pid in _last['processes'] and now>_last['time']:
             percent=max(0,(clock-_last['processes'][pid][0])*100/ticks/(now-_last['time']))
-        scored.append((rss,pid,percent,name))
-    for rss,pid,percent,name in sorted(scored,reverse=True)[:100]:
-        rows.append('PROC|%d|%.1f|%d|%s'%(pid,percent,rss,name))
+        scored.append((rss,pid,percent,name,role))
+    for rss,pid,percent,name,role in sorted(scored,reverse=True)[:100]:
+        rows.append('PROC|%d|%.1f|%d|%s|%s'%(pid,percent,rss,name,role))
     _last=dict(time=now,cpu=cpu,net=net,disk=disk,processes=processes)
     return '\n'.join(rows)

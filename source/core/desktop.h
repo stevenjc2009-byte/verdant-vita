@@ -67,6 +67,7 @@ typedef struct {
   bool toolbar_page;
   int app, x, y, w, h, ox, oy, ow, oh, workspace, scroll, selection, session;
   unsigned pending, job;
+  uint64_t job_tick;
   int entry_mode, image_w, image_h, cursor;
   int task_tab, task_category; uint64_t performance_tick;
   VCState calc;
@@ -83,7 +84,7 @@ static struct {
   bool active, dirty, menu, keyboard, touchpad, joined, ptr_was_down, shift,
       ctrl, alt, symbols, cut, recovery, quitting, resizing;
   bool auto_update, update_checked;
-  bool pointer_dirty;
+  bool pointer_dirty, touch_active, caps_lock, relative_was_down;
   int ui_scale;
   int workspace, focused, px, py, drag, drag_dx, drag_dy, pan_x, pan_y,
       wallpaper;
@@ -92,6 +93,7 @@ static struct {
   unsigned serial;
   uint64_t last_poll, last_render, last_clock;
   uint64_t last_job, last_media;
+  uint64_t rendered_minute;
   uint64_t pointer_tick;
   int64_t pointer_fraction_x, pointer_fraction_y;
   uint64_t quit_deadline;
@@ -216,6 +218,10 @@ static unsigned vd_request(VDWindow *w, const char *op, const char *a,
   unsigned id = ++vd.serial;
   snprintf(path, sizeof(path), VD_BRIDGE "%u.part", id);
   snprintf(final, sizeof(final), VD_BRIDGE "%u.req", id);
+  #ifdef PLAT_VITA
+  bool native=plat_files_request(id,op,a,b);
+  if(!native) {
+#endif
   FILE *f = fopen(path, "wb");
   if (!f) {
     vd_notice("Storage mailbox could not be opened");
@@ -238,13 +244,16 @@ static unsigned vd_request(VDWindow *w, const char *op, const char *a,
     vd_notice("Request could not be saved");
     return 0;
   }
+  #ifdef PLAT_VITA
+  }
+#endif
   if (w)
     w->pending = id;
   if (w)
     snprintf(w->pending_op, sizeof(w->pending_op), "%s", op);
   if (w && w->app == VD_FILES && !strcmp(op, "list"))
     snprintf(w->title, sizeof(w->title), "Files: %.50s", a ? a : "");
-  vd_notice("Working...");
+  if(strcmp(op,"job") && strcmp(op,"performance"))vd_notice("Working...");
   return id;
 }
 static void vd_save_preferences(void) {
@@ -694,9 +703,12 @@ static void vd_performance_parse(const char *payload) {
   vd_performance.history_at=(n+1)%60;
   if(vd_performance.history_count<60) vd_performance.history_count++;
 }
+static bool vd_window_obscured(int i);
 static void vd_poll_bridge(void) {
   uint64_t now = plat_us();
-  if (now - vd.last_poll < 100000)
+  bool interactive=false;
+  for(int i=0;i<VD_MAX;i++)if(vd.windows[i].used && (vd.windows[i].pending || (vd.windows[i].terminal && !vd_window_obscured(i))))interactive=true;
+  if (now - vd.last_poll < (interactive?20000:100000))
     return;
   vd.last_poll = now;
   for (int s = 0; s < 4; s++)
@@ -733,6 +745,7 @@ static void vd_poll_bridge(void) {
         char *payload = result + (ok                               ? 3
                                   : !strncmp(result, "ERROR\n", 6) ? 6
                                                                    : 0);
+        bool changed=true;
         unsigned completed = w->pending;
         w->pending = 0;
         if (!ok)
@@ -756,8 +769,9 @@ static void vd_poll_bridge(void) {
                    !strcmp(w->pending_op, "performance") ||
                    !strcmp(w->pending_op, "search") ||
                    !strcmp(w->pending_op, "job")) {
+          changed=strcmp(w->text,payload)!=0;
           snprintf(w->text, sizeof(w->text), "%s", payload);
-          vd_notice("Complete");
+          if(strcmp(w->pending_op,"job"))vd_notice("Complete");
           if(w->app==VD_CALC && !strcmp(w->pending_op,"job"))vd_currency_parse(w,payload);
           if (!strcmp(w->pending_op, "performance")) vd_performance_parse(payload);
           if (!strcmp(w->pending_op, "read"))
@@ -769,14 +783,14 @@ static void vd_poll_bridge(void) {
           if (w->app == VD_FILES)
             vd_request(w, "list", w->path, NULL, NULL, NULL);
         }
-        vd.dirty = true;
+        if(changed)vd.dirty = true;
       }
     }
-    if (w->job && !w->pending && now - vd.last_job > 1000000) {
+    if (w->job && !w->pending && now - w->job_tick > 250000) {
       char jid[16];
       snprintf(jid, sizeof(jid), "%u", w->job);
       vd_request(w, "job", jid, NULL, NULL, NULL);
-      vd.last_job = now;
+      w->job_tick = now;
       if (w->app == VD_REMOTE) {
         char frame[256];
         snprintf(frame, sizeof(frame), VD_BRIDGE "vnc-%u.ppm", w->job);
@@ -798,7 +812,7 @@ static void vd_poll_bridge(void) {
         w->output_offset += n;
         for (size_t j = 0; j < n; j++)
           term_write_char(w->terminal, b[j]);
-        if (n)
+        if(n && !vd_window_obscured(i))
           vd.dirty = true;
       }
     }
@@ -988,21 +1002,27 @@ static void vd_tasks_draw(VDWindow *w,int x,int y,int width,int height) {
   vd_rect(x+116,y,122,24,w->task_tab?0x477647:0x243e30);
   vd_label(x+124,y+8,"Performance",VD_TEXT_COLOR,110);
   if(!w->task_tab) {
-    vd_label(x,y+32,"PID    CPU %    RAM KiB   Process (Linux)",VD_ACCENT,width);
+    int cx=x+width-198,rx=x+width-132,px=x+width-54;
+    vd_label(x,y+32,"Process (Linux)",VD_ACCENT,width-206);
+    vd_label(cx,y+32,"CPU %",VD_ACCENT,60);vd_label(rx,y+32,"RAM MiB",VD_ACCENT,76);vd_label(px,y+32,"PID",VD_ACCENT,54);
     const char *p=w->text;int row=0,drawn=0;
-    while(p && *p && drawn<(height-48)/14) {
+    while(p && *p && drawn<(height-66)/26) {
       if(!strncmp(p,"PROC|",5)) {
-        int pid;float cpu;unsigned long rss;char name[80];
-        if(sscanf(p+5,"%d|%f|%lu|%79[^\n]",&pid,&cpu,&rss,name)==4 && row++>=w->scroll) {
-          char line[160],usage[16];
-          if(cpu<0)strcpy(usage," --");else snprintf(usage,16,"%5.1f",cpu);
-          snprintf(line,sizeof(line),"%-6d %s %9lu   %.48s",pid,usage,rss,name);
-          if(drawn%2==0)vd_rect(x,y+48+drawn*14,width,14,0x20372a);
-          vd_label(x,y+51+drawn*14,line,VD_TEXT_COLOR,width);drawn++;
+        int pid;float cpu;unsigned long rss;char name[80]={0},role[128]={0};
+        if(sscanf(p+5,"%d|%f|%lu|%79[^|\n]|%127[^\n]",&pid,&cpu,&rss,name,role)>=4 && row++>=w->scroll) {
+          char usage[24];int yy=y+48+drawn*26;
+          if(drawn%2==0)vd_rect(x,yy,width,26,0x20372a);
+          vd_label(x+2,yy+2,name,VD_TEXT_COLOR,width-208);
+          vd_label(x+2,yy+14,role,VD_ACCENT,width-208);
+          if(cpu<0)strcpy(usage,"--");else snprintf(usage,sizeof(usage),"%.1f",cpu);
+          vd_label(cx,yy+5,usage,VD_TEXT_COLOR,60);
+          snprintf(usage,sizeof(usage),"%.1f",rss/1024.);vd_label(rx,yy+5,usage,VD_TEXT_COLOR,76);
+          snprintf(usage,sizeof(usage),"%d",pid);vd_label(px,yy+5,usage,VD_TEXT_COLOR,54);drawn++;
         }
       }
       p=strchr(p,'\n');if(p)p++;
     }
+    vd_label(x,y+height-12,"Per-process network / GPU: unavailable",VD_ACCENT,width);
     return;
   }
   const char *categories[]={"CPU","Memory","GPU","Wi-Fi","Storage"};
@@ -1017,12 +1037,12 @@ static void vd_tasks_draw(VDWindow *w,int x,int y,int width,int height) {
     int gw=(ww-6)/2,gh=(height-105)/2;if(gh<24)gh=24;
     for(int i=0;i<4;i++) {
       char title[48];
-      if(n->cpu_valid)snprintf(title,48,"Core %d: %d%%%s",i,n->cores[i],i==3?" sys":"");
+      if(n->cpu_valid)snprintf(title,48,"Core %d: %d%%%s",i,n->cores[i],i==3?(n->display_core==3?" app":" sys"):"");
       else snprintf(title,48,"Core %d: unavailable",i);
       vd_graph(xx+(i%2)*(gw+6),yy+(i/2)*(gh+4),gw,gh,i,title,100);
     }
     yy+=2*(gh+4);
-    snprintf(info,sizeof(info),"Vita ARM Cortex-A9 / %d MHz current\n3 application cores; core 3 system\nGuest: RV32 Linux / 1 virtual CPU\nGuest utilization: %.1f%%\nBase speed: not exposed by API",n->cpu_mhz,vd_performance.guest_cpu);
+    snprintf(info,sizeof(info),"Vita ARM Cortex-A9 / %d MHz current\n%s\nGuest: RV32 Linux / 1 virtual CPU\nGuest utilization: %.1f%%\nBase speed: not exposed by API",n->cpu_mhz,n->display_core==3?"4 usable cores (CPU3 unlocked)":"3 usable cores (CPU3 locked)",vd_performance.guest_cpu);
   } else if(w->task_category==1) {
     vd_graph(xx,yy,ww,60,5,"Linux RAM used (%)",100);yy+=68;
     snprintf(info,sizeof(info),"Linux RAM: %lu / %lu MiB used\nApp heap: %.1f / %.1f MiB\nVita free user pool: %.1f MiB\nVita free CDRAM: %.1f MiB\nMemory type/clock: unavailable",
@@ -1048,12 +1068,26 @@ static void vd_tasks_draw(VDWindow *w,int x,int y,int width,int height) {
   }
 }
 
+#ifdef PLAT_VITA
+#include "keyboard_ui.h"
+#endif
 static void vd_action(VDWindow *w,int button);
 #include "calculator_ui.h"
 #include "updater_ui.h"
+static bool vd_window_obscured(int i) {
+ VDWindow *w=&vd.windows[i];
+ if(!w->used || w->minimized || w->workspace!=vd.workspace)return true;
+ if(w->x+w->w+3<=vd.pan_x || w->y+w->h+3<=vd.pan_y || w->x>=vd.pan_x+VD_W || w->y>=vd.pan_y+VD_H)return true;
+ if(i==vd.focused)return false;
+ for(int j=0;j<VD_MAX;j++) {
+  VDWindow *top=&vd.windows[j];if(j==i || !top->used || top->minimized || top->workspace!=vd.workspace || (j!=vd.focused && (j<i || i==vd.focused)))continue;
+  if(top->x<=w->x && top->y<=w->y && top->x+top->w>=w->x+w->w+3 && top->y+top->h>=w->y+w->h+3)return true;
+ }
+ return false;
+}
 static void vd_render_window(int i) {
   VDWindow *w = &vd.windows[i];
-  if (!w->used || w->minimized || w->workspace != vd.workspace)
+  if(vd_window_obscured(i))
     return;
   vd_rect(w->x + 3, w->y + 3, w->w, w->h, 0x08130e);
   vd_rect(w->x, w->y, w->w, w->h, VD_SURFACE);
@@ -1149,7 +1183,7 @@ static void vd_render_window(int i) {
     vd_button(x + 48, by, 44, "Paste");
     vd_button(x + 96, by, 36, "^Pg");
     vd_button(x + 136, by, 36, "vPg");
-    vd_button(x + 176, by, 36, "Key");
+    vd_button(x + 176, by, 80, "Keyboard");
   }
 }
 static struct {
@@ -1157,6 +1191,9 @@ static struct {
   uint8_t bytes[70][4];
   uint8_t size[70];
   int count;
+#ifdef PLAT_VITA
+  plat_damage_t bounds[2];
+#endif
 } vd_cursor_saved;
 static void vd_cursor_restore(void) {
   for (int i = 0; i < vd_cursor_saved.count; i++)
@@ -1164,12 +1201,23 @@ static void vd_cursor_restore(void) {
 }
 static void vd_cursor_draw(void) {
   vd_cursor_saved.count = 0;
+#ifdef PLAT_VITA
+  memset(vd_cursor_saved.bounds,0,sizeof(vd_cursor_saved.bounds));
+#endif
+#ifdef PLAT_VITA
+  if(vd.touch_active)return;
+#endif
   for (int yy = 0; yy < 10; yy++) for (int xx = 0; xx < 7; xx++) {
     int x = vd.px + xx - vd.pan_x, y = vd.py + yy - vd.pan_y;
     int s = y >= VD_TERM_H;
     if (s) { x -= VD_PANEL_X; y -= VD_TERM_H; }
     plat_fb_t *fb = &vd.fb[s];
     if (!fb->base || x < 0 || y < 0 || x >= fb->w || y >= fb->h) continue;
+#ifdef PLAT_VITA
+    plat_damage_t *region=&vd_cursor_saved.bounds[s];
+    if(!region->w)*region=(plat_damage_t){x,y,1,1};
+    else {int right=region->x+region->w,bottom=region->y+region->h;if(x<region->x)region->x=x;if(y<region->y)region->y=y;if(x+1>right)right=x+1;if(y+1>bottom)bottom=y+1;region->w=right-region->x;region->h=bottom-region->y;}
+#endif
     int i = vd_cursor_saved.count++;
     vd_cursor_saved.address[i] = fb->base + (ptrdiff_t)y * fb->y_stride + (ptrdiff_t)x * fb->x_stride;
     vd_cursor_saved.size[i] = fb->bpp;
@@ -1182,7 +1230,8 @@ static void vd_render(void) {
   if (!vd.active)
     return;
   uint64_t now = plat_us();
-  if (!vd.dirty && !vd.pointer_dirty && now - vd.last_clock < 500000)
+  uint64_t minute=plat_wallclock_ms()/60000;
+  if(!vd.dirty && !vd.pointer_dirty && minute==vd.rendered_minute)
     return;
   if (now - vd.last_render < g_top_refresh_us)
     return;
@@ -1195,15 +1244,17 @@ static void vd_render(void) {
   vd.fb[1].w = VD_PANEL_W; vd.fb[1].h = VD_PANEL_H;
 #endif
 #ifdef PLAT_VITA
-  if (!vd.dirty && vd.pointer_dirty && now - vd.last_clock < 500000) {
-    vd_cursor_restore();
-    vd_cursor_draw();
-    plat_present(PLAT_SURF_BIT(PLAT_SURF_TERM) | PLAT_SURF_BIT(PLAT_SURF_PANEL));
+  if(!vd.dirty && vd.pointer_dirty && minute==vd.rendered_minute) {
+    plat_damage_t changed[2];memcpy(changed,vd_cursor_saved.bounds,sizeof(changed));
+    vd_cursor_restore();vd_cursor_draw();
+    for(int i=0;i<2;i++){plat_damage_t next=vd_cursor_saved.bounds[i];if(!next.w)continue;if(!changed[i].w){changed[i]=next;continue;}int right=changed[i].x+changed[i].w,bottom=changed[i].y+changed[i].h;if(next.x+next.w>right)right=next.x+next.w;if(next.y+next.h>bottom)bottom=next.y+next.h;if(next.x<changed[i].x)changed[i].x=next.x;if(next.y<changed[i].y)changed[i].y=next.y;changed[i].w=right-changed[i].x;changed[i].h=bottom-changed[i].y;}
+    plat_present_regions(changed);
     vd.pointer_dirty = false;
     return;
   }
 #endif
   vd.last_clock = now;
+  vd.rendered_minute=minute;
   {
     uint32_t c = vd.wallpaper == 1   ? 0x102219
                  : vd.wallpaper == 2 ? 0x112b25
@@ -1256,6 +1307,9 @@ static void vd_render(void) {
       vd_label(x + 6, y + a * 16 + 4, vd_names[a], VD_TEXT_COLOR, 152);
   }
   if (vd.keyboard) {
+#ifdef PLAT_VITA
+    vd_keyboard_draw_vita();
+#else
     vd_rect(VD_PANEL_X, VD_TERM_H, VD_PANEL_W, VD_PANEL_H, VD_SURFACE);
     const char *normal[] = {"1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"};
     const char *symbols[] = {"!@#$%^&*()", "-_=+[]{}\\|", ";:'\"`,.<>?", "/~"};
@@ -1279,6 +1333,7 @@ static void vd_render(void) {
     const char *nav[] = {"<", "v", "^", ">", "Home", "End", "PgUp", "PgDn"};
     for (int c = 0; c < 8; c++)
       vd_button(VD_PANEL_X + c * bw, VD_H - 23, bw - 1, nav[c]);
+#endif
   }
   if (vd.notice[0] && !vd.keyboard)
     vd_label(VD_PANEL_X + 4, VD_H - 33, vd.notice, VD_ACCENT, VD_PANEL_W - 8);
@@ -1699,6 +1754,9 @@ static void vd_action(VDWindow *w, int button) {
   vd.dirty = true;
 }
 static void vd_keyboard_click(int x, int y) {
+#ifdef PLAT_VITA
+  vd_keyboard_click_vita(x,y);
+#else
   int xx = x - VD_PANEL_X, yy = y - VD_TERM_H, kh = (VD_PANEL_H - 70) / 4,
       kw = VD_PANEL_W / 10;
   if (yy < 22) {
@@ -1745,9 +1803,16 @@ static void vd_keyboard_click(int x, int y) {
       vd_navigation(k);
   }
   vd.dirty = true;
+#endif
 }
 static void vd_click(int x, int y) {
-  if (vd.keyboard && y >= VD_TERM_H) {
+  if (vd.keyboard && y >=
+#ifdef PLAT_VITA
+      vd_keyboard_top()
+#else
+      VD_TERM_H
+#endif
+      ) {
     vd_keyboard_click(x, y);
     return;
   }
@@ -1966,7 +2031,7 @@ static void vd_init(void) {
     while ((e = readdir(dir))) {
       const char *ext = strrchr(e->d_name, '.');
       if (ext && (!strcmp(ext, ".req") || !strcmp(ext, ".res") ||
-                  !strcmp(ext, ".part") || !strcmp(ext, ".in") ||
+                  !strcmp(ext, ".part") || !strcmp(ext, ".native-part") || !strcmp(ext, ".in") ||
                   !strcmp(ext, ".out"))) {
         char p[512];
         snprintf(p, sizeof(p), VD_BRIDGE "%s", e->d_name);
@@ -2027,14 +2092,21 @@ static void vd_init(void) {
   strcpy(w->title, "Linux console");
   vd.focused = 0;
 }
-/* At full deflection cross one-and-a-half desktop widths per second.
+/* At full deflection cross half a desktop width per second on Vita.
+   A quadratic curve makes small deflections precise. Other consoles keep
+   their existing sensitivity.
    Fractional pixels survive between polls; rendering speed cannot change
    pointer sensitivity. A long stall must not throw the pointer offscreen. */
 static int vd_pointer_step(int axis, uint64_t elapsed, int64_t *fraction) {
   if (!axis) { *fraction = 0; return 0; }
   if (elapsed > 50000) elapsed = 50000;
+#ifdef PLAT_VITA
+  const int64_t denominator = 32768000000LL;
+  int64_t distance = *fraction + (int64_t)axis * abs(axis) * VD_W * elapsed;
+#else
   const int64_t denominator = 256000000;
   int64_t distance = *fraction + (int64_t)axis * VD_W * 3 * elapsed;
+#endif
   int pixels = (int)(distance / denominator);
   *fraction = distance % denominator;
   return pixels;
@@ -2107,8 +2179,10 @@ static void vd_update(const plat_input_t *in) {
       }
     }
     int64_t freebytes = plat_v9p_free_bytes();
+    char previous_status[96];strcpy(previous_status,vd.status);
     snprintf(vd.status, sizeof(vd.status), "B%s C%s W%s " PLAT_STORAGE_LABEL " %lldM", bat, chg,
              wifi, (long long)(freebytes < 0 ? 0 : freebytes / (1024 * 1024)));
+    if(strcmp(previous_status,vd.status))vd.dirty=true;
     status_tick = now;
   }
   if (in->down & PLAT_BTN_SETTINGS) {
@@ -2145,7 +2219,10 @@ static void vd_update(const plat_input_t *in) {
     vd.focused = -1;
     vd.dirty = true;
   }
-  if (in->pan_x || in->pan_y) {
+#ifdef PLAT_VITA
+  if(vd.touch_active!=in->ptr_down){vd.touch_active=in->ptr_down;vd.pointer_dirty=true;}
+#endif
+  if ((in->pan_x || in->pan_y) && !in->ptr_down) {
     if (in->held & PLAT_BTN_SETTINGS) {
       for (int i = 0; i < VD_MAX; i++)
         if (vd.windows[i].used && vd.windows[i].workspace == vd.workspace) {
@@ -2177,6 +2254,15 @@ static void vd_update(const plat_input_t *in) {
       : VD_TERM_H + (physical_y - PLAT_TERM_H) * VD_PANEL_H / PLAT_PANEL_H;
 #endif
   if (in->ptr_down) {
+#ifdef PLAT_VITA
+    /* Relative pad is optional on empty desktop space. Every application,
+       keyboard, launcher and taskbar still receives direct finger input. */
+    bool relative=vd.touchpad && !vd.keyboard && !vd.menu && x>150 && y<VD_H-22;
+    for(int i=0;i<VD_MAX && relative;i++){VDWindow *t=&vd.windows[i];if(t->used && !t->minimized && t->workspace==vd.workspace && x>=t->x && x<t->x+t->w && y>=t->y && y<t->y+t->h)relative=false;}
+    static int last_touch_x,last_touch_y;
+    if(relative){if(vd.relative_was_down){vd.px+=x-last_touch_x;vd.py+=y-last_touch_y;if(vd.px<0)vd.px=0;if(vd.px>=VD_W)vd.px=VD_W-1;if(vd.py<0)vd.py=0;if(vd.py>=VD_H)vd.py=VD_H-1;}last_touch_x=x;last_touch_y=y;x=vd.px;y=vd.py;}
+    vd.relative_was_down=relative;
+#else
     if (vd.touchpad && !vd.keyboard) {
       static int lx, ly;
       if (vd.ptr_was_down) {
@@ -2191,17 +2277,20 @@ static void vd_update(const plat_input_t *in) {
       vd.px = x;
       vd.py = y;
     }
+#endif
     vd.pointer_dirty = true;
   }
+  else vd.relative_was_down=false;
   if (in->ptr_tapped)
     vd_click(x, y);
-  if (in->down & PLAT_BTN_A)
+  if ((in->down & PLAT_BTN_A) && !in->ptr_down)
     vd_click(vd.px, vd.py);
+  int interaction_x=in->ptr_down?x:vd.px,interaction_y=in->ptr_down?y:vd.py;
   if (vd.drag >= 0 && (in->ptr_down || (in->held & PLAT_BTN_A))) {
     VDWindow *d = &vd.windows[vd.drag];
     if (vd.resizing) {
-      d->w = vd.px - d->x + 1;
-      d->h = vd.py - d->y + 1;
+      d->w = interaction_x - d->x + 1;
+      d->h = interaction_y - d->y + 1;
       if (d->w < 300)
         d->w = 300;
       if (d->w > VD_W)
@@ -2212,8 +2301,8 @@ static void vd_update(const plat_input_t *in) {
       if (d->h > VD_H - 22)
         d->h = VD_H - 22;
     } else {
-      d->x = vd.px - vd.drag_dx;
-      d->y = vd.py - vd.drag_dy;
+      d->x = interaction_x - vd.drag_dx;
+      d->y = interaction_y - vd.drag_dy;
       if (!vd.joined) {
         int lo = d->y < VD_TERM_H ? 0 : VD_TERM_H,
             hi = lo + VD_TERM_H - d->h;
@@ -2229,8 +2318,8 @@ static void vd_update(const plat_input_t *in) {
     if (s && s->terminal) {
       TermState *t = s->terminal;
       int fw = t->use_5x7 ? 5 : 8;
-      int gx = (vd.px - s->x - 5) / (fw * t->zoom_x) + t->scroll_x;
-      int gy = (vd.py - s->y - 21) / (8 * t->zoom_x) + t->scroll_y;
+      int gx = (interaction_x - s->x - 5) / (fw * t->zoom_x) + t->scroll_x;
+      int gy = (interaction_y - s->y - 21) / (8 * t->zoom_x) + t->scroll_y;
       if (gx >= 0 && gx < TERM_COLS && gy >= -t->sb_count && gy < TERM_ROWS) {
         vd.select_end = gy * TERM_COLS + gx;
         vd.dirty = true;
@@ -2282,8 +2371,7 @@ static void vd_update(const plat_input_t *in) {
       vd.dirty = true;
     }
   }
-  if (term_state.dirty)
-    vd.dirty = true;
+  if(term_state.dirty)for(int i=0;i<VD_MAX;i++)if(vd.windows[i].terminal==&term_state && !vd_window_obscured(i)){vd.dirty=true;break;}
   vd_render();
 }
 static void vd_shutdown(void) {

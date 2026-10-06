@@ -27,7 +27,7 @@ The 3DS build was developed and packaged first. This second target shares the de
 3. Leave it running through automatic runtime setup and extraction of the approximately 192 MB Linux disk. Keep at least 500 MB free, preferably 1 GB. First launch can take several minutes; progress is displayed.
 4. Configure networking in the Vita's settings. Linux uses the same NAT bridge and startup configuration as the 3DS build.
 
-The runtime is `ux0:/verdant/`. For compatibility with the shared guest image, this storage appears inside Linux at **`/mnt/3ds/sd`**, including on Vita. Linux files and shell history live in the persistent `rootfs.ext2` disk. Read README.md for SSH authentication, downloads, VNC, packages, backup and recovery instructions.
+The runtime is `ux0:/verdant/`. Inside Linux this storage appears at **`/mnt/vita/ux0`**. The shared internal `/mnt/3ds/sd` transport remains as a compatibility alias. Linux files and shell history live in the persistent `rootfs.ext2` disk. Read README.md for SSH authentication, downloads, VNC, packages, backup and recovery instructions.
 
 To rebuild, install VitaSDK and its required portlibs, set `VITASDK` and put its `bin` directory on PATH, then run `make -f mk/vita.mk -j4`. This produces the thin application VPK at `dist/vita/verdant.vpk`. With the patched `Image` present, run `python tools/bundle_vita_setup.py` to produce the standalone installer at `dist/vita/verdant-setup.vpk`. The GitHub standalone asset is named `verdant.vpk`; the online update ZIP intentionally retains a thin VPK because it already supplies runtime files separately. Do not bundle the toolchain into the application.
 
@@ -39,7 +39,7 @@ The Vita uses one 960×544 canvas. It has upper and lower logical window regions
 
 | Control | Action |
 |---|---|
-| Front touch | Pointer and desktop buttons; optional relative touchpad mode |
+| Front touch | Direct application input; optional relative pad on empty desktop space |
 | Left stick + Cross | Pointer movement and click/drag |
 | Square | Switch window |
 | Triangle | Move focused window between logical regions |
@@ -67,3 +67,21 @@ The guest is interpreted RV32 Linux rather than native ARM Linux. Expect substan
 - The camera, microphone and audio implementation follows the [VitaSDK API documentation](https://docs.vitasdk.org/) and its [camera sample](https://github.com/vitasdk/samples/tree/master/camera).
 
 Neither the native Linux loader nor Moonlight can simply supply missing local Linux graphics drivers to the shared emulated guest. The practical near-term work is hardware validation, interface refinement and improving the application/runtime integration.
+
+## New in Vita 0.3.2
+
+Vita finger input targets application buttons directly, independently of the joystick cursor. Drag/resize also uses finger coordinates. The optional relative pad works on empty desktop space; app controls, launcher and keyboard stay direct touch. The cursor hides during a touch. The left stick has one-third of its former maximum speed and a quadratic precision curve near center.
+
+The Terminal toolbar now has a **Keyboard** button. Its replacement keyboard uses a larger QWERTY layout, wide Shift/Enter/Space/Backspace keys, numbers, punctuation, Ctrl/Alt/Escape and navigation keys, without function keys. New terminals start Bash directly with a small startup file, preserved history and user `.bashrc`, rather than automatically running neofetch. `neofetch` and `bash -l` remain available manually.
+
+Task Manager puts process names on the left, then CPU %, RAM MiB and PID, with an explanation derived from the actual program and script. Per-process GPU/network throughput is labeled unavailable. Core 2 runs the one-vCPU RV32 interpreter; the native desktop is C code, while Python handles Linux bridge/background services. Physical core percentages and guest process CPU percentages measure different work.
+
+The display worker tries CPU 3 (CapUnlocker) and falls back to CPU 1 when denied. Task Manager reports its selected core. The CPU clock policy preserves clocks at 444 MHz or higher, including a user-selected 500 MHz clock. It does not force an unsupported overclock. Independent native work uses multiple physical cores; the guest remains one virtual CPU.
+
+Supported ux0 file listing, small text open/save, mkdir, file copy and move/rename run on an asynchronous native worker. Linux-only paths, directory copy, search/trash and other complex operations still use the guest. Document saves retain the previous file before committing because Vita rename is not an atomic replacement. An interrupted `.verdant-save-backup` or `.verdant-save-part` remains recoverable.
+
+Idle half-second redraws are removed. Covered windows and unchanged job output do not trigger unnecessary painting. Cursor-only transfer/scaling uses damage regions across both alternating buffers. Graph samples and scale maps are cached. Quiet guest services poll at 10 Hz rather than keeping every idle terminal at 50 Hz. Native HTTPS retains DNS/TLS/connection caches. Networking starts without a 15-second Wi-Fi association wait.
+
+The release retains the full compatible `verdant-vita-update.zip`. An installed 0.3.1 updater uses that package once. Once 0.3.2 is running, later same-runtime releases can use `verdant-vita-fast-update.zip` and reuse Image only after native hash validation, avoiding another roughly 56 MB runtime download. The standalone VPK remains self-contained.
+
+VitaSDK builds and sanitized host/regression tests pass. The actual RV32 Linux guest starts an interactive fast terminal and returns process roles on the host fixture. The prompt appeared in 0.414 seconds on that PC fixture, not a measured Vita time. Physical FPS, touch accuracy, post-update CPU load and CapUnlocker behavior still require console testing.
