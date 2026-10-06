@@ -323,7 +323,7 @@ bool plat_thread_start(void (*entry)(void *), void *arg) {
   emu_entry = entry;
   emu_arg   = arg;
 
-  emu_tid = sceKernelCreateThread("3dscli_emu", vita_emu_trampoline, 0x40,
+  emu_tid = sceKernelCreateThread("verdant_vita_emu", vita_emu_trampoline, 0x40,
                                   128 * 1024, 0, SCE_KERNEL_CPU_MASK_USER_2, NULL);
   if (emu_tid < 0) { emu_tid = -1; return false; }
   if (sceKernelStartThread(emu_tid, 0, NULL) < 0) {
@@ -344,7 +344,7 @@ void plat_thread_join(void) {
 const char *plat_thread_desc(void) { return "core 2"; }
 
 void plat_mutex_init(plat_mutex_t *m) {
-  SceUID s = sceKernelCreateMutex("3dscli_lock", 0, 0, NULL);
+  SceUID s = sceKernelCreateMutex("verdant_vita_lock", 0, 0, NULL);
   memcpy(m->opaque, &s, sizeof(s));
 }
 

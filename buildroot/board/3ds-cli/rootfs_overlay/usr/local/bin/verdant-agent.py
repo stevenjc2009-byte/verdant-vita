@@ -6,7 +6,8 @@ Real terminals use PTYs; minimising/moving a window never restarts its process.
 import os, sys, time, json, pty, subprocess, selectors, signal, shutil, fcntl, termios, struct
 from pathlib import Path
 
-BASE = Path(os.environ.get('VERDANT_BRIDGE', '/mnt/3ds/sd/verdant/bridge'))
+from verdant_platform import configure
+BASE, HARDWARE = configure()
 HOME = Path(os.environ.get('HOME', '/root'))
 MAX_SESSIONS = 4
 sessions = {}
@@ -25,9 +26,10 @@ def check_path(s):
     path = Path(s).resolve()
     # The emulator owns these disk images while Linux is running.
     sd = BASE.parent.parent.resolve()
-    if path in {BASE.parent / 'Image', BASE.parent / 'rootfs.ext2', BASE.parent / 'swap.img'}:
+    runtimes = {BASE.parent, Path('/mnt/3ds/sd/verdant')}
+    if path in {root / name for root in runtimes for name in ('Image', 'rootfs.ext2', 'swap.img')}:
         raise ValueError('Runtime images must be managed while the app is closed')
-    if path == BASE or BASE in path.parents:
+    if any(path == root / 'bridge' or root / 'bridge' in path.parents for root in runtimes):
         raise ValueError('The service mailbox is reserved')
     return path
 
@@ -207,7 +209,7 @@ def dispatch(op, a, rid):
         if not path.is_file() or path.suffix!='.ipk':raise ValueError('Type the path to a compatible RV32 .ipk file')
         return terminal(a[0],shlex.join(['opkg','install',str(path)])+'; exec /bin/bash -l')
     if op == 'status':
-        hw = Path('/mnt/3ds/hw')
+        hw = HARDWARE
         values = []
         for name in ('battery', 'charging', 'wifi', 'network'):
             try: values.append(name + '=' + (hw/name).read_text().strip())

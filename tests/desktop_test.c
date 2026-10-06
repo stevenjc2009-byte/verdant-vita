@@ -14,6 +14,7 @@ static void response(VDWindow *w, const char *data) {
   vd_poll_bridge();
 }
 int main(void) {
+  if (getenv("VERDANT_BOOT_GUEST")) return verdant_application_main(0, NULL);
   int64_t fine = 0, coarse = 0;
   int fine_distance = 0, coarse_distance = 0;
   for (int i = 0; i < 100; i++) fine_distance += vd_pointer_step(128, 10000, &fine);
@@ -32,6 +33,15 @@ int main(void) {
   cfg_defaults(&g_cfg);
   term_init(&term_state);
   vd_init();
+  FILE *profile = fopen(VD_BRIDGE "platform.txt", "rb");
+  assert(profile);
+  char slug[16]; assert(fgets(slug, sizeof(slug), profile)); fclose(profile);
+  assert(!strncmp(slug, PLAT_SLUG, strlen(PLAT_SLUG)));
+#ifdef PLAT_VITA
+  assert(!strcmp(PLAT_SENSOR_LABEL, "PS Vita motion sensors"));
+  assert(!strcmp(PLAT_STORAGE_LABEL, "ux0:"));
+  assert(!strcmp(PLAT_GUEST_STORAGE, "/mnt/vita/ux0"));
+#endif
   vd.active = true;
   g_top_refresh_us = 0;
   int edit = vd_new(VD_EDIT);
@@ -52,12 +62,13 @@ int main(void) {
   desktop_input_byte(3);
   assert(!strcmp(vd.clipboard, w->text));
   int files = vd_new(VD_FILES);
+  assert(!strcmp(vd.windows[files].path, PLAT_GUEST_STORAGE));
   VDWindow *f = &vd.windows[files];
   response(f, "OK\nD folder\nF notes.txt");
   f->selection = 1;
   char path[1024];
   vd_selected_path(f, path, sizeof(path));
-  assert(!strcmp(path, "/mnt/3ds/sd/notes.txt"));
+  assert(!strcmp(path, PLAT_GUEST_STORAGE "/notes.txt"));
   vd_action(f, 2);
   assert(!strcmp(vd.file_clipboard, path));
   assert(!vd.cut);

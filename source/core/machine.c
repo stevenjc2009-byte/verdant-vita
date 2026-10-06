@@ -250,7 +250,7 @@ static bool ExtractEmbeddedRootfs(FILE *f, long gz_off, uint32_t gz_len, uint32_
   uint32_t in_left = gz_len, done = 0, last_mb = 0;
   bool ok = true;
   fseek(f, gz_off, SEEK_SET);
-  term_printf("First boot: extracting rootfs.ext2 (%luMB) to SD...\n",
+  term_printf("First boot: extracting rootfs.ext2 (%luMB) to console storage...\n",
               (unsigned long)(raw_len >> 20));
   PresentTopScreen(present_tick);
 
@@ -286,7 +286,7 @@ static bool ExtractEmbeddedRootfs(FILE *f, long gz_off, uint32_t gz_len, uint32_
      a zero-byte or otherwise broken leftover would also do. */
   remove(kRootfsPath);
   if (rename(kRootfsPart, kRootfsPath) != 0) {
-    term_printf("Could not finalize rootfs.ext2 on the SD card.\n");
+    term_printf("Could not finalize rootfs.ext2 on console storage.\n");
     remove(kRootfsPart);
     return false;
   }
@@ -348,7 +348,7 @@ static bool DownloadProgress(uint64_t got, uint64_t total, void *ctx) {
    and the alternative is an error telling the user to go and find a PC. True
    means an Image is now on the card and the caller should open it. */
 static bool PromptDownloadImage(uint64_t *present_tick) {
-  term_printf("No Image found on the SD card.\n");
+  term_printf("No Image found on console storage.\n");
   term_printf("Press A to download it (~55MB) from the\n"
               "latest release, or B to quit.\n");
   PresentTopScreen(present_tick);
@@ -1019,7 +1019,7 @@ int main(int argc, char **argv) {
 
   if (g_dev_net) {
     vnet_init();
-    term_printf("Network: %s\n", vnet.soc_ready ? "ok (NAT via 3DS WiFi)" : "unavailable");
+    term_printf("Network: %s\n", vnet.soc_ready ? "ok (NAT via console Wi-Fi)" : "unavailable");
     /* The launch ping, which only exists where the socket stack came up. */
     if (vnet.soc_ready) {
       bool minted = false;
@@ -1052,7 +1052,8 @@ int main(int argc, char **argv) {
     int  ln = snprintf(list, sizeof(list), "hw");
     for (int i = 0; i < npt && ln < (int)sizeof(list); i++)
       if (v9p_tree_ok[i])
-        ln += snprintf(list + ln, sizeof(list) - ln, " %s", pt[i].aname);
+        ln += snprintf(list + ln, sizeof(list) - ln, " %s",
+                       !strcmp(pt[i].aname, "sd") ? PLAT_STORAGE_LABEL : pt[i].aname);
     term_printf("Passthrough: %s\n", list);
   } else {
     /* Every tree off takes the whole device with it, including the synthetic
@@ -1062,7 +1063,7 @@ int main(int argc, char **argv) {
 
   if (g_dev_input) {
     vinput_init();
-    term_printf("Sensors: %s\n", plat_caps()->sensors ? "ok (accel, gyro, sliders)"
+    term_printf("Sensors: %s\n", plat_caps()->sensors ? "ok (accel, gyro)"
                                                       : "unavailable");
   } else {
     term_printf("Sensors: disabled\n");
@@ -1184,7 +1185,7 @@ int main(int argc, char **argv) {
 
   dbg_log_file = fopen(PLAT_SD "verdant/debug.log", "w");
 
-  if (!dbg_log_file) dbg_log_file = fopen("3ds-cli-debug.log", "w");
+  if (!dbg_log_file) dbg_log_file = fopen("verdant-debug.log", "w");
   uart_log_file = fopen(PLAT_SD "verdant/console.log", "w");
 
   /* Before the first fprintf or fputc below - see SetStreamBuffer. */

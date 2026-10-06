@@ -192,7 +192,7 @@ static inline bool cfg_save(const Cfg *c) {
   FILE *f = fopen(CFG_PATH, "w");
   if (!f) return false;
 
-  fprintf(f, "# 3ds-cli settings. Edit by hand if the in-app page is unusable;\n"
+  fprintf(f, "# Verdant settings. Edit by hand if the in-app page is unusable;\n"
              "# delete this file to go back to defaults.\n");
   for (int i = 0; i < CFG_NFIELDS; i++) {
     const CfgField *fd = &cfg_fields[i];

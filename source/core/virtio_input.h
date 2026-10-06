@@ -99,20 +99,20 @@ static void vinput_init(void) {
 static uint32_t vinput_cfg_data(uint8_t *out) {
     switch (vin.cfg_select) {
     case VI_CFG_ID_NAME: {
-        const char *n = "Nintendo 3DS motion sensors";
+        const char *n = PLAT_SENSOR_LABEL;
         uint32_t l = (uint32_t)strlen(n);
         memcpy(out, n, l);
         return l;
     }
     case VI_CFG_ID_SERIAL: {
-        const char *n = "3ds-cli";
+        const char *n = "verdant-" PLAT_SLUG;
         uint32_t l = (uint32_t)strlen(n);
         memcpy(out, n, l);
         return l;
     }
     case VI_CFG_ID_DEVIDS: {
         /* bustype BUS_VIRTUAL(0x06), then vendor/product/version. */
-        uint16_t ids[4] = { 0x06, 0x057e /* Nintendo */, 0x3d5, 1 };
+        uint16_t ids[4] = { 0x06, PLAT_SENSOR_VENDOR, 1, 1 };
         memcpy(out, ids, 8);
         return 8;
     }

@@ -1,4 +1,8 @@
-# Verdant Desktop for PS Vita — experimental 0.2.5
+# Verdant Desktop for PS Vita — experimental 0.2.6
+
+Version 0.2.6 adds a Vita-specific profile: real Linux bind mounts at **/mnt/vita/ux0** and **/mnt/vita/hw**, ux0: file-manager/storage labels, Vita keyboard and Cross/Circle/left-stick help, PS Vita sensor identification, Vita RAM choices through 96 MB, and hidden Nintendo NAND/TWL settings. Backups and updater workers use the Vita runtime path. Saved 3DS-named bookmarks are migrated. Existing root disks, preferences and shell history are preserved.
+
+The updater is pinned to stevenjc2009-byte/verdant-vita, the installed title is VRDT00001, and the native filesystem adapter uses ux0:. The old /mnt/3ds transport remains internally for persistent-disk compatibility; it is an alias for the same host files. Old boot status messages are adjusted on the next startup. No Nintendo NAND or TWL is exported on Vita.
 
 Version 0.2.5 renders into cached memory and copies completed frames into alternating CDRAM display buffers, switching on vertical blank. This addresses the reported screen flashing during desktop/cursor refreshes. Analog pointer movement is faster and uses elapsed time with fractional pixels, so its speed remains consistent across redraw rates. Rendering and pointer tests pass on the host; physical smoothness needs confirmation.
 
@@ -12,7 +16,7 @@ Version 0.2.2 fixes the reported VitaShell installation error **0x8010113D**. Al
 
 Reference: [Vita LiveArea asset format guide](https://gist.github.com/hammerill/64411eebf071b93396b7d310ba8d6776), [developer error-code notes](https://gist.github.com/devnoname120/a565bea1b7f38393f220ec34f82ed6ba). The original RGB archive was reproduced as a validation failure; the indexed replacement passes. Actual installation still needs confirmation on the console.
 
-The 3DS build was developed and packaged first. This second target shares the desktop, guest service and RV32 Linux runtime, with a VitaSDK platform adapter. It is a compiled homebrew application, not a replacement for Vita firmware and not native Linux Mint. No physical Vita has been tested.
+The 3DS build was developed and packaged first. This second target shares the desktop, guest service and RV32 Linux runtime, with a VitaSDK platform adapter. It is a compiled homebrew application, not a replacement for Vita firmware and not native Linux Mint. The user confirmed the application reaches the Vita desktop; hardware functions and performance have not been independently tested.
 
 ## Installation
 

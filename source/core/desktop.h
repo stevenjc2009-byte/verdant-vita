@@ -175,7 +175,7 @@ static unsigned vd_request(VDWindow *w, const char *op, const char *a,
   snprintf(final, sizeof(final), VD_BRIDGE "%u.req", id);
   FILE *f = fopen(path, "wb");
   if (!f) {
-    vd_notice("SD mailbox could not be opened");
+    vd_notice("Storage mailbox could not be opened");
     return 0;
   }
   fprintf(f, "%s\n", op);
@@ -254,7 +254,7 @@ static int vd_new(int app) {
   vd.has_selection = false;
   vd.menu = false;
   vd.dirty = true;
-  strcpy(w->path, "/mnt/3ds/sd");
+  strcpy(w->path, PLAT_GUEST_STORAGE);
   if (app == VD_TERM) {
     bool taken[4] = {false};
     for (int i = 0; i < VD_MAX; i++)
@@ -900,7 +900,7 @@ static void vd_render_window(int i) {
     vd_button(x + 128, by, 44, w->toolbar_page ? "Path" : "Paste");
     vd_button(x + 176, by, 44, w->toolbar_page ? "Mark" : "Trash");
     vd_button(x + 224, by, 54, "More");
-    const char *extra[] = {"Cut", "Name", "Find", "Mark", "SD", "Root"};
+    const char *extra[] = {"Cut", "Name", "Find", "Mark", PLAT_STORAGE_LABEL, "Root"};
     for (int b = 0; b < 6; b++)
       vd_button(x + b * 47, by - 18, 44, extra[b]);
   } else if (w->app == VD_EDIT) {
@@ -1040,7 +1040,7 @@ static void vd_render(void) {
                 vd.shift ? toupper(rows[r][c]) : rows[r][c], VD_TEXT_COLOR, 1);
       }
     vd_label(VD_PANEL_X + 4, PLAT_TERM_H + 6,
-             vd.symbols ? "ABC  |  B: hide" : "SYM  |  B: hide", VD_ACCENT,
+             vd.symbols ? "ABC  |  " PLAT_BACK_LABEL ": hide" : "SYM  |  " PLAT_BACK_LABEL ": hide", VD_ACCENT,
              PLAT_PANEL_W - 8);
     const char *keys[] = {"CTL", "ALT", "SHF", "TAB",
                           "ESC", "DEL", "ENT", "SPC"};
@@ -1307,7 +1307,7 @@ static void vd_action(VDWindow *w, int button) {
       w->selection = w->scroll = 0;
       vd_request(w, "list", w->path, NULL, NULL, NULL);
     } else if (button == 10 || button == 11) {
-      strcpy(w->path, button == 10 ? "/mnt/3ds/sd" : "/root");
+      strcpy(w->path, button == 10 ? PLAT_GUEST_STORAGE : "/root");
       w->selection = w->scroll = 0;
       vd_request(w, "list", w->path, NULL, NULL, NULL);
     }
@@ -1438,7 +1438,7 @@ static void vd_action(VDWindow *w, int button) {
                                 ? "opkg update; opkg list-upgradable; exec "
                                   "/bin/bash -l"
                                 : "opkg list-installed; exec /bin/bash -l")
-                         : "tar -czf /mnt/3ds/sd/verdant/root-backup-$(date "
+                         : "tar -czf " PLAT_GUEST_STORAGE "/verdant/root-backup-$(date "
                            "+%Y%m%d-%H%M%S).tar.gz "
                            "/root; exec /bin/bash -l",
                      NULL, NULL);
@@ -1690,6 +1690,11 @@ static void vd_init(void) {
   vd.py = 80;
   mkdir(PLAT_SD "verdant", 0777);
   mkdir(PLAT_SD "verdant/bridge", 0777);
+  FILE *platform_file = fopen(VD_BRIDGE "platform.txt", "wb");
+  if (platform_file) {
+    fprintf(platform_file, "%s\n", PLAT_SLUG);
+    fclose(platform_file);
+  }
   FILE *host_clock = fopen(VD_BRIDGE "host-time", "wb");
   if (host_clock) {
     fprintf(host_clock, "%llu\n",
@@ -1742,6 +1747,14 @@ static void vd_init(void) {
     }
     fclose(f);
   }
+#ifdef PLAT_VITA
+  if (!strncmp(vd.bookmark, "/mnt/3ds/sd", 11) &&
+      (!vd.bookmark[11] || vd.bookmark[11] == '/')) {
+    char old[512];
+    strcpy(old, vd.bookmark);
+    snprintf(vd.bookmark, sizeof(vd.bookmark), PLAT_GUEST_STORAGE "%.480s", old + 11);
+  }
+#endif
   /* Preserve the real kernel console during boot and in recovery. */
   VDWindow *w = &vd.windows[0];
   w->used = true;
@@ -1818,7 +1831,7 @@ static void vd_update(const plat_input_t *in) {
       }
     }
     int64_t freebytes = plat_v9p_free_bytes();
-    snprintf(vd.status, sizeof(vd.status), "B%s C%s W%s SD:%lldM", bat, chg,
+    snprintf(vd.status, sizeof(vd.status), "B%s C%s W%s " PLAT_STORAGE_LABEL " %lldM", bat, chg,
              wifi, (long long)(freebytes < 0 ? 0 : freebytes / (1024 * 1024)));
     status_tick = now;
   }

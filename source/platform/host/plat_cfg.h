@@ -1,7 +1,12 @@
 #ifndef PLAT_CFG_H
 #define PLAT_CFG_H
 #define PLAT_NAME "Host test"
+#ifdef VERDANT_TEST_VITA
+#define PLAT_SLUG "vita"
+#define PLAT_VITA
+#else
 #define PLAT_SLUG "3ds"
+#endif
 #define PLAT_SD "./"
 #define PLAT_MUTEX_SIZE 64
 #ifdef VERDANT_TEST_VITA

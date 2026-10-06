@@ -5,6 +5,7 @@
 
 #define PLAT_NAME        "Vita"
 #define PLAT_SLUG        "vita"
+#define PLAT_VITA
 
 /* ux0: is the active writable storage mount configured on the user's system. */
 #define PLAT_SD          "ux0:/"

@@ -22,8 +22,8 @@ static CtrOskTheme g_osk_theme;
 
 void pkbd_init(void) {
   ctrOskInit(&g_osk);
-  g_osk.title    = "3ds-cli";
-  g_osk.subtitle = "adabit.org";
+  g_osk.title    = "Verdant for PS Vita";
+  g_osk.subtitle = "Touch keyboard";
   ada_osk_fit(&g_osk, PLAT_PANEL_W, PLAT_PANEL_H);
 }
 

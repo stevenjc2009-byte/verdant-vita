@@ -1,4 +1,4 @@
-# Validation — experimental 0.2.5
+# Validation — experimental 0.2.6
 
 - devkitARM ARMv6: 3DSX/CIA generated; check3dsx relocation validation passes.
 - VitaSDK channel 2026.08: native ARM executable, SELF and VPK generated, including camera/mic/audio adapters and original LiveArea assets. Compilation does not establish physical operation.
@@ -23,3 +23,5 @@ The user subsequently reported an immediate return to LiveArea after installing 
 The user's 0.2.3 boot.log confirms successful entry into main and framebuffer allocation/base lookup, followed by display setup error 0x80290006. Version 0.2.4 replaces immediate framebuffer updates with next-frame scheduling and waits for vertical blank. This corrects the observed failing call; subsequent physical boot remains unverified.
 
 Version 0.2.5 responds to the user's confirmed desktop boot and reported redraw flashes/slow analog pointer. The Vita renderer uses a persistent cached drawing buffer plus two CDRAM scanout buffers, copying only completed frames and switching at vertical blank. Pointer tests verify equal distance at different polling rates, fractional slow movement, neutral reset and capped movement after stalls. Physical flicker/performance still requires confirmation. The bundled /etc/shadow was inspected: local root has an empty password.
+
+Version 0.2.6 audits the Vita profile: Linux storage/hardware mounts, file-manager defaults and shortcuts, backup path, storage indicators, keyboard/control help, sensor name/vendor, native thread names, model/storage APIs, supported settings/RAM and pinned Vita update channel. Sanitized desktop tests pass with Vita defaults. The actual RV32 guest passes canonical Vita bind mounts, file I/O, backward-compatible aliases, runtime image guards and shell environment checks on disposable storage. This confirms guest integration, not physical media hardware or Vita filesystem permissions.

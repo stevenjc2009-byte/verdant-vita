@@ -19,6 +19,7 @@ def main():
         root = Path(tmp)/'rootfs.ext2'; root.write_bytes(raw)
         commands = ['mkdir /usr/local', 'mkdir /usr/local/bin', 'rm /etc/default/dropbear']
         for src,dst,mode in [(project/'guest/verdant-agent.py','/usr/local/bin/verdant-agent.py','0100755'),
+                             (project/'guest/verdant_platform.py','/usr/local/bin/verdant_platform.py','0100644'),
                              (project/'guest/verdant-vnc.py','/usr/local/bin/verdant-vnc.py','0100755'),
                              (project/'guest/pyDes.py','/usr/local/bin/pyDes.py','0100644'),
                              (project/'guest/dropbear-default','/etc/default/dropbear','0100644'),

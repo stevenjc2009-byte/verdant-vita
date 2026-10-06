@@ -91,14 +91,24 @@ static const char *const lbl_theme[]  = { "adabit dark", "adabit light", "xterm 
 static const int         val_theme[]  = { ADA_THEME_DARK, ADA_THEME_LIGHT, ADA_THEME_XTERM };
 static const char *const lbl_font[]   = { "8x8", "5x7" };
 static const char *const lbl_bg[]     = { "theme", "black" };
+#ifdef PLAT_VITA
+static const char *const lbl_kbd[]    = { "touch keyboard" };
+static const int         val_kbd[]    = { 0 };
+#else
 static const char *const lbl_kbd[]    = { "realtime", "3DS system" };
 static const int         val_kbd[]    = { 0, 1 };
+#endif
 static const char *const lbl_bksp[]   = { "BS (8)", "DEL (127)" };
 static const char *const lbl_circle[] = { "arrows", "pan view" };
 static const char *const lbl_zoom[]   = { "1x", "2x", "3x", "4x", "5x" };
 static const int         val_zoom[]   = { 1, 2, 3, 4, 5 };
+#ifdef PLAT_VITA
+static const char *const lbl_ram[]    = { "auto", "16 MB", "32 MB", "48 MB", "64 MB", "80 MB", "96 MB" };
+static const int         val_ram[]    = { 0, 16, 32, 48, 64, 80, 96 };
+#else
 static const char *const lbl_ram[]    = { "auto", "16 MB", "24 MB", "32 MB", "48 MB", "64 MB" };
 static const int         val_ram[]    = { 0, 16, 24, 32, 48, 64 };
+#endif
 
 #define R_TOGGLE(lab, f, nl)      { lab, ROW_TOGGLE, offsetof(Cfg, f), NULL, NULL, 0, nl, 0 }
 #define R_BOOL(lab, f, l, nl)     { lab, ROW_BOOLCHOICE, offsetof(Cfg, f), l, NULL, 2, nl, 0 }
@@ -109,7 +119,7 @@ static const int         val_ram[]    = { 0, 16, 24, 32, 48, 64 };
 
 static const Row rows_display[] = {
   R_CHOICE("Theme",             theme,        lbl_theme, val_theme, false),
-  R_BOOL  ("Top background",    top_black,    lbl_bg,               false),
+  R_BOOL  ("Background",        top_black,    lbl_bg,               false),
   R_BOOL  ("Font",              use_5x7,      lbl_font,             false),
   R_CHOICE("Zoom horizontal",   zoom_x,       lbl_zoom,  val_zoom,  false),
   R_CHOICE("Zoom vertical",     zoom_y,       lbl_zoom,  val_zoom,  false),
@@ -121,14 +131,16 @@ static const Row rows_input[] = {
   R_CHOICE("Keyboard",          keyboard,     lbl_kbd,   val_kbd,   false),
   R_BOOL  ("Backspace sends",   backspace_del, lbl_bksp,            false),
   R_TOGGLE("Shift is one-shot", shift_oneshot,                      false),
-  R_BOOL  ("Circle pad",        circle_pans,  lbl_circle,           false),
+  R_BOOL  (PLAT_STICK_LABEL,     circle_pans,  lbl_circle,           false),
 };
 
 static const Row rows_hw[] = {
   R_TOGGLE("Network (NAT)",     dev_net,      true),
-  R_TOGGLE("SD passthrough",    dev_sd,       true),
+  R_TOGGLE(PLAT_STORAGE_LABEL " passthrough", dev_sd, true),
+#ifndef PLAT_VITA
   R_TOGGLE("NAND passthrough",  dev_nand,     true),
   R_TOGGLE("TWL passthrough",   dev_twl,      true),
+#endif
   R_TOGGLE("Sensors",           dev_sensors,  true),
   R_TOGGLE("Hardware RNG",      dev_rng,      true),
   R_TOGGLE("Swap file",         dev_swap,     true),
@@ -394,20 +406,20 @@ static void settings_draw(void) {
   if (settings_toast[0]) {
     ui_text_centre(0, SET_FOOT_Y + 6, UI_W, settings_toast, p->foam, 1);
   } else {
-    ui_text_centre(0, SET_FOOT_Y, UI_W, "L/R section   D-pad move   A change", p->muted, 1);
-    ui_text_centre(0, SET_FOOT_Y + 12, UI_W, "B close   START quit", p->muted, 1);
+    ui_text_centre(0, SET_FOOT_Y, UI_W, "L/R section   D-pad move   " PLAT_CONFIRM_LABEL " change", p->muted, 1);
+    ui_text_centre(0, SET_FOOT_Y + 12, UI_W, PLAT_BACK_LABEL " close   START quit", p->muted, 1);
   }
 
   if (settings_confirm) {
-    int cw = 260, ch = 96, cx = (UI_W - cw) / 2, cy = (UI_H - ch) / 2;
+    int cw = 300, ch = 96, cx = (UI_W - cw) / 2, cy = (UI_H - ch) / 2;
     ui_rrect(cx, cy, cw, ch, UI_R_CARD, p->overlay);
     ui_rrect_outline(cx, cy, cw, ch, UI_R_CARD, p->love);
     ui_text_centre(cx, cy + 14, cw, "Reset guest state?", p->text, 1);
     ui_text_centre(cx, cy + 32, cw, "Deletes rootfs.ext2 and re-extracts", p->muted, 1);
     ui_text_centre(cx, cy + 42, cw, "it from Image at the next launch.", p->muted, 1);
     ui_text_centre(cx, cy + 52, cw, "Everything in the guest is lost.", p->muted, 1);
-    ui_button(p, cx + 20, cy + ch - 30, 100, 22, "A  reset", UI_BTN_DANGER);
-    ui_button(p, cx + cw - 120, cy + ch - 30, 100, 22, "B  cancel", UI_BTN_NORMAL);
+    ui_button(p, cx + 20, cy + ch - 30, 120, 22, PLAT_CONFIRM_LABEL " reset", UI_BTN_DANGER);
+    ui_button(p, cx + cw - 140, cy + ch - 30, 120, 22, PLAT_BACK_LABEL " cancel", UI_BTN_NORMAL);
   }
 
   plat_present(PLAT_SURF_BIT(PLAT_SURF_PANEL));

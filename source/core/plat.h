@@ -18,6 +18,24 @@
 
 #include "plat_cfg.h"
 
+#if defined(PLAT_VITA) || defined(VERDANT_TEST_VITA)
+#define PLAT_GUEST_STORAGE "/mnt/vita/ux0"
+#define PLAT_STORAGE_LABEL "ux0:"
+#define PLAT_BACK_LABEL "Circle"
+#define PLAT_CONFIRM_LABEL "Cross"
+#define PLAT_STICK_LABEL "Left stick"
+#define PLAT_SENSOR_LABEL "PS Vita motion sensors"
+#define PLAT_SENSOR_VENDOR 0x054c
+#else
+#define PLAT_GUEST_STORAGE "/mnt/3ds/sd"
+#define PLAT_STORAGE_LABEL "SD"
+#define PLAT_BACK_LABEL "B"
+#define PLAT_CONFIRM_LABEL "A"
+#define PLAT_STICK_LABEL "Circle pad"
+#define PLAT_SENSOR_LABEL "Nintendo 3DS motion sensors"
+#define PLAT_SENSOR_VENDOR 0x057e
+#endif
+
 /* ------------------------------------------------------------------
  * Lifecycle
  * ------------------------------------------------------------------ */
