@@ -39,3 +39,11 @@ Major unfinished work: local Linux GUI runtime, package repository, graphical SC
 ## Vita 0.3.0 desktop and performance
 
 Global saved desktop scaling (100/125/150/175/200 percent, default 150) covers fonts, controls, taskbar, windows, pointer and keyboard. Settings has touchable graphical cards. Task Manager supplies processes and performance categories with CPU core history and guest RAM/network graphs. Vita CPU/GPU current clocks, core utilization (if kernel query succeeds), user/CDRAM free pools, application heap, Wi-Fi state/signal and ux0 capacity use native APIs. Linux guest CPU, RAM, processes and network/disk rates use /proc. GPU utilization, memory type/speed, base CPU frequency and physical link/storage throughput are not exposed and are labeled unavailable. The four physical core charts include the system core for observation only; the guest remains single-vCPU.
+
+## Vita 0.3.1 additions
+
+- Native touchscreen/mouse calculator: standard arithmetic, percentages, repeat equals, memory/history; scientific functions; single-function graph plotting with zoom/pan; exact unsigned programmer operations; Gregorian date difference/add/subtract; 12 unit categories; dated ECB currency conversion with cache and refresh.
+- Notepad: renamed existing graphical editor, retaining file open/edit/save behavior.
+- Native GitHub release check without guest Python, bounded timeout/cancellation, graphical updater states and download progress, fresh metadata reuse. Installation/staging preserves the existing recovery protocol.
+
+This is a lightweight native application set, not Windows Calculator or the Windows Notepad executable. Console interaction and download speeds still need physical Vita validation.

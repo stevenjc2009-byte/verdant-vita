@@ -50,6 +50,13 @@ static void raster_test(void) {
   vd.pan_x = vd.pan_y = 0;
   vd.fb[0] = saved[0]; vd.fb[1] = saved[1];
 }
+static void calculator_tap(VDWindow *w,const char *label) {
+  vd_calculator_layout(w,w->x+5,w->y+21,w->w-10,w->h-27);
+  for(int i=0;i<vc_button_count;i++)if(!strcmp(vc_buttons[i].label,label)) {
+    VCB b=vc_buttons[i];vd_click(b.x+b.w/2,b.y+b.h/2);return;
+  }
+  assert(!"Calculator button missing");
+}
 static void capture_desktop(const char *name) {
   FILE *out=fopen(name,"wb");assert(out);
   fprintf(out,"P6\n%d %d\n255\n",PLAT_TERM_W,PLAT_TERM_H+PLAT_PANEL_H);
@@ -64,6 +71,22 @@ static void capture_desktop(const char *name) {
   fclose(out);
 }
 int main(void) {
+#ifdef PLAT_VITA
+  if(getenv("VERDANT_CHECK_ONLY")) {
+    assert(plat_init());cfg_defaults(&g_cfg);term_init(&term_state);vd_init();plat_http_start();
+    VUNativeCheck check={0};uint64_t begin=plat_us();assert(vu_native_start(&check));
+    while(check.running){vu_native_poll(&check);plat_sleep_us(20000);}
+    printf("Native GitHub check without Linux: %.2f seconds: %s\n",(plat_us()-begin)/1000000.0,check.status);
+    assert(!check.failed && check.latest[0]);
+    if(getenv("VERDANT_CHECK_CURRENCY")) {
+      plat_sleep_us(100000);FILE *request=fopen(VUN_HTTP ".req","wb");assert(request);fputs("https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml\n",request);fclose(request);
+      uint64_t begin_rates=plat_us();while(!vu_exists(VUN_HTTP ".res")){assert(plat_us()-begin_rates<45000000);plat_sleep_us(20000);}
+      char result[256]={0};FILE *response=fopen(VUN_HTTP ".res","rb");assert(response);size_t got=fread(result,1,255,response);result[got]=0;fclose(response);assert(!strncmp(result,"OK\n",3));
+      assert(!rename(VUN_HTTP ".data","currency-test.xml"));puts("ECB reference rates retrieved with the production native verified HTTPS worker.");
+    }
+    plat_http_stop();return 0;
+  }
+#endif
   if (getenv("VERDANT_BOOT_GUEST")) return verdant_application_main(0, NULL);
   int64_t fine = 0, coarse = 0;
   int fine_distance = 0, coarse_distance = 0;
@@ -130,17 +153,33 @@ int main(void) {
   assert(vd.cut);
   int calc = vd_new(VD_CALC);
   VDWindow *c = &vd.windows[calc];
-  strcpy(c->input, "2*(3+4)");
+  strcpy(c->calc.expression, "2*(3+4)");
   desktop_input_byte(13);
-  assert(strstr(c->text, "= 14"));
-  strcpy(c->input, "1/0");
+  assert(!strcmp(c->calc.answer,"14"));
+  strcpy(c->calc.expression, "1/0");c->calc.done=false;
   desktop_input_byte(13);
-  assert(!strcmp(c->text, "Invalid expression"));
+  assert(c->calc.error[0]);
   vd.keyboard = true;
   vd.symbols = true;
   vd_keyboard_click(VD_PANEL_X + PLAT_PANEL_W/10 + 1, PLAT_TERM_H + 30);
-  assert(strchr(c->input, '@'));
+  assert(strchr(c->calc.expression, '@'));
   vd.keyboard = false;
+  c->calc.done=false;calculator_tap(c,"CE");calculator_tap(c,"2");calculator_tap(c,"+");calculator_tap(c,"3");calculator_tap(c,"=");assert(!strcmp(c->calc.answer,"5"));
+  assert(!vd.keyboard);
+  for(int percent=100;percent<=200;percent+=25) {
+    vd_change_scale(percent-vd.ui_scale);c->w=VD_W-24;c->h=VD_H-58;c->x=12;c->y=28;vd.focused=calc;
+    for(int mode=0;mode<VC_MODES;mode++) {
+      vc_mode(&c->calc,mode);
+      for(int page=0;page<2;page++) {
+        c->calc.functions_page=page;c->calc.word_page=page;c->calc.graph_edit=page;
+        vd_calculator_layout(c,c->x+5,c->y+21,c->w-10,c->h-27);
+        for(int i=0;i<vc_button_count;i++) {VCB *b=&vc_buttons[i];assert(b->x>=c->x && b->y>=c->y && b->x+b->w<=c->x+c->w && b->y+b->h<=c->y+c->h);}
+        vd.dirty=true;vd.last_render=0;vd_render();
+      }
+      if(percent==150) {char screenshot[64];snprintf(screenshot,sizeof(screenshot),"calculator-%d-150.ppm",mode);c->calc.graph_edit=false;vd.dirty=true;vd.last_render=0;vd_render();capture_desktop(screenshot);}
+    }
+  }
+  vd_change_scale(100-vd.ui_scale);
   int terminal = vd_new(VD_TERM);
   VDWindow *t = &vd.windows[terminal];
   int sid = t->session;
@@ -171,7 +210,7 @@ int main(void) {
   vd.last_clock = plat_us(); vd.last_render=0;vd_render(); vd_cursor_restore();
   assert(!memcmp(scene, display.base, display_bytes));
   free(scene);
-  vd.focused = edit;
+  vd.focused = edit;assert(!strcmp(vd_names[VD_EDIT],"Notepad"));
   vd.windows[edit].x = -200;
   vd.windows[edit].y = -100;
   vd.dirty = true;
@@ -198,6 +237,8 @@ int main(void) {
   for(int category=0;category<5;category++) { manager->task_category=category;vd.dirty=true;vd.last_render=0;vd_render();
     if(category==0)capture_desktop("tasks-150.ppm"); }
 #endif
+  int updater=vd_new(VD_UPDATER);vd.focused=updater;vd_change_scale(50);
+  vd.dirty=true;vd.last_render=0;vd_render();capture_desktop("updater-150.ppm");
   vd_shutdown();
   plat_exit();
   return 0;

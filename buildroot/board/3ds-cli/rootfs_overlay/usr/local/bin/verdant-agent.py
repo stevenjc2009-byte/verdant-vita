@@ -82,12 +82,19 @@ def launch_job(jid, command):
     return f'Job {jid} started'
 
 def dispatch(op, a, rid):
+    if op=='currency':
+        script=BASE.parent/'guest'/'verdant-currency.py'
+        if not script.is_file():raise ValueError('Currency service is absent; install the full update')
+        if any((j.get('updater') or j.get('currency')) and j['process'].poll() is None for j in jobs.values()):raise ValueError('Another verified download is running')
+        result=launch_job(rid,[sys.executable,'-u',str(script)])
+        jobs[rid].update(currency=True,started=time.monotonic(),timeout=90)
+        return result
     if op=='sysupdate':
         action,platform,current=a[:3]
         if action not in ('check','stage') or platform not in ('3ds','vita'):raise ValueError('Invalid updater request')
         script=BASE.parent/'guest'/'verdant-updater.py'
         if not script.is_file():raise ValueError('Updater is absent from SD; install the complete release')
-        if any(j.get('updater') and j['process'].poll() is None for j in jobs.values()):raise ValueError('An updater is already running')
+        if any((j.get('updater') or j.get('currency')) and j['process'].poll() is None for j in jobs.values()):raise ValueError('An updater is already running')
         result=launch_job(rid,[sys.executable,'-u',str(script),action,platform,current]);jobs[rid]['updater']=True;jobs[rid]['started']=time.monotonic();jobs[rid]['timeout']=900 if action=='stage' else 90;return result
     if op == 'shutdown':
         for sid in list(sessions):stop_session(sid)
@@ -181,7 +188,7 @@ def dispatch(op, a, rid):
             tail = f.read().decode(errors='replace')
         return status + '\n' + tail
     if op == 'cancel':
-        if jobs.get(a[0],{}).get('updater'):(BASE/'host-http.cancel').write_text('1')
+        if jobs.get(a[0],{}).get('updater') or jobs.get(a[0],{}).get('currency'):(BASE/'host-http.cancel').write_text('1')
         job = jobs.get(a[0])
         if job and job['process'].poll() is None:
             os.killpg(job['process'].pid, signal.SIGTERM)
@@ -223,7 +230,9 @@ def dispatch(op, a, rid):
     raise ValueError('Unsupported operation: ' + op)
 
 def tick():
-    for req in sorted(BASE.glob('*.req'), key=lambda p: int(p.stem))[:8]:
+    # Native HTTPS has its own host-http.req mailbox in this directory.
+    requests=(p for p in BASE.glob('*.req') if p.stem.isascii() and p.stem.isdigit())
+    for req in sorted(requests, key=lambda p: int(p.stem))[:8]:
         rid = req.stem
         try:
             lines = req.read_text().splitlines()
@@ -255,7 +264,7 @@ def tick():
         except BlockingIOError: pass
         except OSError: stop_session(key.data)
     for job in jobs.values():
-        if job.get('updater') and job['process'].poll() is None and time.monotonic()-job['started']>job['timeout']:
+        if (job.get('updater') or job.get('currency')) and job['process'].poll() is None and time.monotonic()-job['started']>job['timeout']:
             os.killpg(job['process'].pid,signal.SIGTERM)
             job['out'].write(b'\nUpdate timed out. Check Vita Wi-Fi and system date/time.\n');job['out'].flush()
             (BASE/'host-http.cancel').write_text('1')

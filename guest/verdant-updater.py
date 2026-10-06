@@ -3,7 +3,7 @@
 import os,re,sys,time
 from pathlib import Path,PurePosixPath
 
-VERSION='0.3.0'
+VERSION='0.3.1'
 REPOS={'3ds':'stevenjc2009-byte/verdant-3ds','vita':'stevenjc2009-byte/verdant-vita'}
 LIMIT=160*1024*1024
 RUNTIME=Path(os.environ.get('VERDANT_RUNTIME',str(Path(__file__).resolve().parent.parent)))
@@ -33,9 +33,13 @@ def opener():
     context=ssl.create_default_context(cafile=str(RUNTIME/'guest'/'github-ca.pem'))
     return urllib.request.build_opener(GithubRedirect(),urllib.request.HTTPSHandler(context=context))
 
-def native_fetch(url,target=None,limit=1024*1024):
+def native_fetch(url,target=None,limit=1024*1024,validator=safe_url):
     bridge=RUNTIME/'bridge';base=bridge/'host-http'
     def path(ext):return base.with_name(base.name+ext)
+    deadline=time.monotonic()+50
+    while path('.owner').exists():
+        if time.monotonic()>deadline:raise TimeoutError('Another native check is still running; retry shortly')
+        time.sleep(.2)
     if path('.req').exists() or path('.busy').exists():
         path('.cancel').write_text('1')
         print('Waiting for the previous HTTPS transfer to stop...',flush=True)
@@ -44,8 +48,8 @@ def native_fetch(url,target=None,limit=1024*1024):
             if time.monotonic()>deadline:raise TimeoutError('Previous HTTPS transfer is still stopping; retry shortly')
             time.sleep(.2)
     for ext in ('.res','.cancel','.progress','.data'):path(ext).unlink(missing_ok=True)
-    atom(path('.req'),safe_url(url)+'\n')
-    print('Connecting to GitHub using Vita HTTPS...',flush=True)
+    atom(path('.req'),validator(url)+'\n')
+    print('Connecting using Vita verified HTTPS...',flush=True)
     started=time.monotonic();last=''
     while not path('.res').exists():
         if time.monotonic()-started>650:
@@ -130,7 +134,8 @@ def stage(package,platform,tag,asset_digest=None):
         required={'verdant/Image','verdant/guest/verdant-updater.py','verdant/guest/github-ca.pem'}
         required.add('verdant.vpk' if platform=='vita' else '3ds/verdant/verdant.3dsx')
         if not required.issubset(selected):raise ValueError('Incomplete update package')
-        for n in selected:
+        for index,n in enumerate(selected):
+            print('Unpacking %d/%d: %s'%(index+1,len(selected),n),flush=True)
             if not re.fullmatch('[0-9a-f]{64}',manifest[n]):raise ValueError('Invalid digest')
             out=temp/n;out.parent.mkdir(parents=True,exist_ok=True)
             h=hashlib.sha256()
@@ -163,7 +168,12 @@ def main():
     print('Checking GitHub releases for '+platform+' (current '+current+')...',flush=True)
     import json
     client=None if (RUNTIME/'bridge/host-http.enabled').exists() else opener()
-    release=json.loads(fetch(client,'https://api.github.com/repos/'+REPOS[platform]+'/releases/latest'))
+    cached=RUNTIME/'update-release.json'
+    if action=='stage' and cached.exists() and 0<=time.time()-cached.stat().st_mtime<300:
+        print('Using the release just checked by native Vita HTTPS...',flush=True)
+        release=json.loads(cached.read_text())
+    else:
+        release=json.loads(fetch(client,'https://api.github.com/repos/'+REPOS[platform]+'/releases/latest'))
     tag=release['tag_name']
     if release.get('prerelease') or release.get('draft'):raise ValueError('Unstable release rejected')
     if version(tag)<=version(current):print('Up to date: '+current,flush=True);return
@@ -181,6 +191,7 @@ def main():
     with package.open('wb') as f:fetch(client,url,f,LIMIT);f.flush();os.fsync(f.fileno())
     digest=asset.get('digest','')
     if not re.fullmatch(r'sha256:[0-9a-f]{64}',digest):raise ValueError('Release requires a GitHub SHA-256 digest')
+    print('Verifying downloaded package and staging the update...',flush=True)
     stage(package,platform,tag,digest[7:]);package.unlink();os.sync()
 
 def shutil_free():

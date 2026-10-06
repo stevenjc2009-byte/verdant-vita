@@ -7,6 +7,7 @@ static SceUID vita_http_thread=-1;
 static uint64_t vita_http_progress_tick;
 static size_t vita_http_received;
 static bool vita_http_url(const char *url) {
+  if(!strcmp(url,"https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"))return true;
   const char *hosts[]={"api.github.com/","github.com/","release-assets.githubusercontent.com/","objects.githubusercontent.com/"};
   if(strncmp(url,"https://",8))return false;
   for(int i=0;i<4;i++) if(!strncmp(url+8,hosts[i],strlen(hosts[i])))return true;
@@ -68,7 +69,7 @@ static void vita_http_process(void) {
     curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,1L);
     curl_easy_setopt(curl,CURLOPT_SSL_VERIFYHOST,2L);
     curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,0L);
-    curl_easy_setopt(curl,CURLOPT_USERAGENT,"Verdant-Vita/0.3.0");
+    curl_easy_setopt(curl,CURLOPT_USERAGENT,"Verdant-Vita/0.3.1");
     curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT,20L);
     curl_easy_setopt(curl,CURLOPT_TIMEOUT,600L);
     curl_easy_setopt(curl,CURLOPT_LOW_SPEED_TIME,30L);

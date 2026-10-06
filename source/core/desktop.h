@@ -37,6 +37,10 @@
 #define VD_ACCENT 0x88c572
 #include "updater.h"
 #include "setup.h"
+#include "calculator.h"
+#ifdef PLAT_VITA
+#include "native_update.h"
+#endif
 enum {
   VD_TERM,
   VD_FILES,
@@ -54,7 +58,7 @@ enum {
   VD_APP_COUNT
 };
 static const char *vd_names[] = {
-    "Terminal",     "Files",    "Text editor",    "Calculator",
+    "Terminal",     "Files",    "Notepad",    "Calculator",
     "Task manager", "Settings", "SSH & transfer", "Downloads",
     "Media",        "Packages", "Remote desktop", "Backups",
     "System update"};
@@ -65,6 +69,10 @@ typedef struct {
   unsigned pending, job;
   int entry_mode, image_w, image_h, cursor;
   int task_tab, task_category; uint64_t performance_tick;
+  VCState calc;
+#ifdef PLAT_VITA
+  VUNativeCheck update_check;
+#endif
   unsigned char *image;
   char pending_op[24];
   long output_offset;
@@ -263,6 +271,16 @@ static void vd_terminal_preferences(TermState *t) {
   t->zoom_x = g_cfg.zoom_x;
   t->zoom_y = g_cfg.zoom_y;
 }
+static void vd_currency_parse(VDWindow *w,const char *payload) {
+ VCState *c=&w->calc;const char *date=strstr(payload,"RATES|");
+ if(!date){snprintf(c->rates_status,sizeof(c->rates_status),"%s",!strncmp(payload,"running",7)?"Downloading reference rates...":"Refresh failed; retry on Wi-Fi");return;}
+ char stamp[16];if(sscanf(date+6,"%15[^\n]",stamp)!=1)return;
+ for(int i=0;i<8;i++) {
+  char key[8];snprintf(key,sizeof(key),"\n%s|",vc_currencies[i]);const char *line=strstr(date,key);double rate;
+  if(line && sscanf(line+strlen(key),"%lf",&rate)==1 && isfinite(rate) && rate>0)c->rates[i]=rate;
+ }
+ snprintf(c->rates_date,sizeof(c->rates_date),"%.15s",stamp);strcpy(c->rates_status,"Reference rates (cached)");
+}
 static int vd_new(int app) {
   if(app==VD_UPDATER) for(int i=0;i<VD_MAX;i++) {
     VDWindow *w=&vd.windows[i];
@@ -288,7 +306,7 @@ static int vd_new(int app) {
   w->session = -1;
   w->w = VD_W > 500 ? 500 : 300;
   w->h = 190;
-  if (app == VD_SETTINGS || app == VD_TASKS) { w->w = VD_W - 24; w->h = VD_H - 58; }
+  if (app == VD_SETTINGS || app == VD_TASKS || app == VD_CALC || app == VD_UPDATER) { w->w = VD_W - 24; w->h = VD_H - 58; }
   w->x = VD_PANEL_X + 6 + (slot % 3) * 6;
   w->y = 28 + (slot % 3) * 8;
   snprintf(w->title, sizeof(w->title), "%s", vd_names[app]);
@@ -329,9 +347,13 @@ static int vd_new(int app) {
   else if (app == VD_EDIT) {
     strcpy(w->path, "/root/notes.txt");
     strcpy(w->text, "");
-  } else if (app == VD_CALC)
-    strcpy(w->text, "Enter an expression, then press Enter.\nSupports + - * / "
-                    "and parentheses.");
+  } else if (app == VD_CALC) {
+    vc_init(&w->calc);
+    time_t now=(time_t)(plat_wallclock_ms()/1000);struct tm *today=localtime(&now);
+    if(today) {strftime(w->calc.date[0],11,"%Y-%m-%d",today);strcpy(w->calc.date[1],w->calc.date[0]);}
+    FILE *rates=fopen(PLAT_SD "verdant/currency-rates.txt","rb");
+    if(rates) {size_t got=fread(w->text,1,sizeof(w->text)-1,rates);w->text[got]=0;fclose(rates);vd_currency_parse(w,w->text);}
+  }
   else if (app == VD_SSH) {
     strcpy(w->input, "user@192.168.1.10");
     w->path[0] = 0;
@@ -391,6 +413,9 @@ static int vd_new(int app) {
 }
 static void vd_close(int idx) {
   VDWindow *w = &vd.windows[idx];
+#ifdef PLAT_VITA
+  if(w->app==VD_UPDATER)vu_native_cancel(&w->update_check);
+#endif
   if (w->app == VD_REMOTE && w->job) {
     char id[16];
     snprintf(id, sizeof(id), "%u", w->job);
@@ -436,65 +461,6 @@ static void vd_cycle(void) {
   }
   vd.dirty = true;
 }
-static const char *vd_expr;
-static bool vd_math_error;
-static double vd_sum(void);
-static double vd_factor(void) {
-  while (isspace((unsigned char)*vd_expr))
-    vd_expr++;
-  if (*vd_expr == '(') {
-    vd_expr++;
-    double v = vd_sum();
-    if (*vd_expr == ')')
-      vd_expr++;
-    else
-      vd_math_error = true;
-    return v;
-  }
-  char *end;
-  double v = strtod(vd_expr, &end);
-  if (end == vd_expr) {
-    vd_math_error = true;
-    return 0;
-  }
-  vd_expr = end;
-  return v;
-}
-static double vd_product(void) {
-  double v = vd_factor();
-  for (;;) {
-    while (isspace((unsigned char)*vd_expr))
-      vd_expr++;
-    char c = *vd_expr;
-    if (c != '*' && c != '/')
-      break;
-    vd_expr++;
-    double r = vd_factor();
-    if (c == '/') {
-      if (r == 0)
-        vd_math_error = true;
-      else
-        v /= r;
-    } else
-      v *= r;
-  }
-  return v;
-}
-static double vd_sum(void) {
-  double v = vd_product();
-  for (;;) {
-    while (isspace((unsigned char)*vd_expr))
-      vd_expr++;
-    char c = *vd_expr;
-    if (c != '+' && c != '-')
-      break;
-    vd_expr++;
-    double r = vd_product();
-    v += c == '+' ? r : -r;
-  }
-  return v;
-}
-
 static void vd_selected_path(VDWindow *w, char *out, size_t n);
 static bool vd_image_extension(const char *p) {
   const char *e = strrchr(p, '.');
@@ -518,6 +484,7 @@ static void vd_load_image(VDWindow *w, const char *path) {
   w->image_h = y;
   vd.dirty = true;
 }
+static bool vd_calculator_input(VDWindow *w,unsigned char byte);
 static bool desktop_input_byte(char c) {
   if (!vd.active)
     return false;
@@ -539,6 +506,7 @@ static bool desktop_input_byte(char c) {
     vd.dirty = true;
     return true;
   }
+  if(w->app==VD_CALC)return vd_calculator_input(w,(unsigned char)c);
   char *s = w->app == VD_EDIT && !w->entry_mode ? w->text : w->input;
   size_t max = s == w->text ? sizeof(w->text) : sizeof(w->input), n = strlen(s);
   if (s == w->text) {
@@ -610,19 +578,6 @@ static bool desktop_input_byte(char c) {
       if (n + 1 < max) {
         s[n++] = '\n';
         s[n] = 0;
-      }
-    } else if (w->app == VD_CALC) {
-      vd_expr = s;
-      vd_math_error = false;
-      double answer = vd_sum();
-      while (isspace((unsigned char)*vd_expr))
-        vd_expr++;
-      if (*vd_expr || vd_math_error || !isfinite(answer))
-        strcpy(w->text, "Invalid expression");
-      else {
-        char result[2304];
-        snprintf(result, sizeof(result), "%s\n= %.10g", w->input, answer);
-        memcpy(w->text, result, strlen(result) + 1);
       }
     } else if (w->app == VD_FILES && s[0]) {
       if (n < sizeof(w->path)) {
@@ -760,6 +715,11 @@ static void vd_poll_bridge(void) {
     if (!w->used)
       continue;
     char p[256];
+#ifdef PLAT_VITA
+    if(w->app==VD_UPDATER && w->update_check.running) {
+      if(vu_native_poll(&w->update_check))vd.dirty=true;
+    }
+#endif
     if (w->pending) {
       snprintf(p, sizeof(p), VD_BRIDGE "%u.res", w->pending);
       FILE *f = fopen(p, "rb");
@@ -779,7 +739,8 @@ static void vd_poll_bridge(void) {
           vd_notice(payload);
         else if (!strcmp(w->pending_op, "download") ||
                  !strcmp(w->pending_op, "vnc") ||
-                 !strcmp(w->pending_op, "sysupdate")) {
+                 !strcmp(w->pending_op, "sysupdate") ||
+                 !strcmp(w->pending_op, "currency")) {
           w->job = completed;
           snprintf(w->text, sizeof(w->text), "%s", payload);
           vd_notice("Started");
@@ -797,6 +758,7 @@ static void vd_poll_bridge(void) {
                    !strcmp(w->pending_op, "job")) {
           snprintf(w->text, sizeof(w->text), "%s", payload);
           vd_notice("Complete");
+          if(w->app==VD_CALC && !strcmp(w->pending_op,"job"))vd_currency_parse(w,payload);
           if (!strcmp(w->pending_op, "performance")) vd_performance_parse(payload);
           if (!strcmp(w->pending_op, "read"))
             w->cursor = strlen(w->text);
@@ -1086,6 +1048,9 @@ static void vd_tasks_draw(VDWindow *w,int x,int y,int width,int height) {
   }
 }
 
+static void vd_action(VDWindow *w,int button);
+#include "calculator_ui.h"
+#include "updater_ui.h"
 static void vd_render_window(int i) {
   VDWindow *w = &vd.windows[i];
   if (!w->used || w->minimized || w->workspace != vd.workspace)
@@ -1103,6 +1068,12 @@ static void vd_render_window(int i) {
     vd_settings_draw(w,x,y,width,height);
   } else if (w->app == VD_TASKS) {
     vd_tasks_draw(w,x,y,width,height);
+  } else if (w->app == VD_CALC) {
+    vd_calculator_draw(w,x,y,width,w->h-27);
+    return;
+  } else if(w->app==VD_UPDATER) {
+    vd_updater_draw(w,x,y,width,w->h-27);
+    return;
   } else if (w->image) {
     int dw = width, dh = w->image_h * width / w->image_w;
     if (dh > height) {
@@ -1605,12 +1576,21 @@ static void vd_action(VDWindow *w, int button) {
       vd_notice(vd.auto_update ? "Automatic downloads enabled"
                                : "Automatic downloads disabled");
     } else if (button == 3) {
+#ifdef PLAT_VITA
+      if(w->update_check.running){vu_native_cancel(&w->update_check);vd_notice("Check cancelled");return;}
+#endif
+      if(!w->job){vd_notice("No transfer to cancel");return;}
       char id[20];
       snprintf(id, sizeof(id), "%u", w->job);
       vd_request(w, "cancel", id, NULL, NULL, NULL);
-    } else if (!w->job && !w->pending)
-      vd_request(w, "sysupdate", button == 0 ? "check" : "stage", PLAT_SLUG,
-                 VU_VERSION, NULL);
+    } else if (!w->job && !w->pending) {
+#ifdef PLAT_VITA
+      if(button==0){w->text[0]=0;plat_http_start();vu_native_start(&w->update_check);vd.dirty=true;}
+      else if(!w->update_check.running)vd_request(w,"sysupdate","stage",PLAT_SLUG,VU_VERSION,NULL);
+#else
+      vd_request(w,"sysupdate",button==0?"check":"stage",PLAT_SLUG,VU_VERSION,NULL);
+#endif
+    }
   } else if (w->app == VD_TASKS)
     vd_request(w, "performance", NULL, NULL, NULL, NULL);
   else if (w->app == VD_MEDIA)
@@ -1866,6 +1846,10 @@ static void vd_click(int x, int y) {
     }
   } else if (w->app == VD_SETTINGS) {
     vd_settings_click(w,x,y);
+  } else if (w->app == VD_CALC) {
+    vd_calculator_click(w,x,y);
+  } else if(w->app==VD_UPDATER) {
+    vd_updater_click(w,x,y);
   } else if (w->app == VD_TASKS && y < w->y+w->h-19) {
     int rx=x-w->x-5, ry=y-w->y-21;
     if(ry<26) { w->task_tab=rx>=116; w->scroll=0; }
@@ -1993,6 +1977,7 @@ static void vd_init(void) {
   }
   remove(VD_BRIDGE "ready");
   remove(VD_BRIDGE "host-http.enabled");
+  remove(VD_BRIDGE "host-http.owner");
   /* Reserve terminals before the guest consumes the remaining heap. */
   for (int s = 0; s < 4; s++) {
     vd.sessions[s] = calloc(1, sizeof(TermState));
@@ -2075,9 +2060,12 @@ static void vd_update(const plat_input_t *in) {
       if (i >= 0) {
         vd.windows[i].minimized = true;
         vd.focused = old;
-        vd_request(&vd.windows[i], "sysupdate",
-                   vd.auto_update ? "stage" : "check", PLAT_SLUG, VU_VERSION,
-                   NULL);
+#ifdef PLAT_VITA
+        if(vd.auto_update)vd_request(&vd.windows[i],"sysupdate","stage",PLAT_SLUG,VU_VERSION,NULL);
+        else vu_native_start(&vd.windows[i].update_check);
+#else
+        vd_request(&vd.windows[i],"sysupdate",vd.auto_update?"stage":"check",PLAT_SLUG,VU_VERSION,NULL);
+#endif
       }
     }
   }
@@ -2218,8 +2206,9 @@ static void vd_update(const plat_input_t *in) {
         d->w = 300;
       if (d->w > VD_W)
         d->w = VD_W;
-      if (d->h < 110)
-        d->h = 110;
+      int minimum=(d->app==VD_CALC || d->app==VD_UPDATER)?200:110;
+      if (d->h < minimum)
+        d->h = minimum;
       if (d->h > VD_H - 22)
         d->h = VD_H - 22;
     } else {
@@ -2299,6 +2288,7 @@ static void vd_update(const plat_input_t *in) {
 }
 static void vd_shutdown(void) {
 #ifdef PLAT_VITA
+  for(int i=0;i<VD_MAX;i++)if(vd.windows[i].used && vd.windows[i].app==VD_UPDATER)vu_native_cancel(&vd.windows[i].update_check);
   plat_http_stop();
 #endif
   vd_stop_media();

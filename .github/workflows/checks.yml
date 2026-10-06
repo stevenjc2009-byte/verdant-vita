@@ -22,3 +22,13 @@ jobs:
           ASAN_OPTIONS=detect_leaks=0 python3 tests/setup_test.py /tmp/verdant-setup-test
           gcc -O1 -g -fsanitize=address,undefined tests/vita_frame_test.c -lpthread -o /tmp/verdant-frame-test
           /tmp/verdant-frame-test
+      - name: Test calculator and native release checks
+        run: |
+          python3 tests/currency_test.py
+          python3 tests/agent_mailbox_test.py
+          gcc -O1 -g -fsanitize=address,undefined tests/calculator_test.c -lm -o /tmp/verdant-calculator-test
+          /tmp/verdant-calculator-test
+          gcc -O1 -g -fsanitize=address,undefined tests/native_check_test.c -o /tmp/verdant-native-check-test
+          check_dir=$(mktemp -d)
+          cd "$check_dir"
+          /tmp/verdant-native-check-test

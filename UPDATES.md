@@ -36,3 +36,9 @@ Automated tests cover platform/hash rejection, HTTPS host restrictions, archive 
 ## Vita 0.3.0
 
 Verified HTTPS is performed by a native worker on application core 1, with 20-second connection, 30-second stalled-transfer and bounded job timeouts. Progress/errors appear in the updater. The guest retains GitHub SHA-256, archive and platform validation. Each redirect is restricted to GitHub release hosts; TLS certificate and hostname checks stay enabled. Existing 0.2.6 updaters can stage the same ZIP format, then apply it on relaunch. An old already-running updater cannot receive the new transport until updated; if it stays stuck, install the full release VPK once in VitaShell.
+
+## Vita 0.3.1 native checks
+
+The Vita System update panel now has **Check now**, **Download**, **Auto: on/off** and **Cancel** buttons. Check now bypasses the RV32 Linux guest/Python entirely and starts verified native HTTPS immediately. It times out after 45 seconds, displays errors and can be cancelled. Strict stable-release metadata and numeric versions are checked before showing an update. A fresh verified release response is cached for up to five minutes and reused when staging. Download still requires the Linux service for SHA-256 and archive/platform checks; that phase displays preparation, byte progress, verification and unpacking status. There is no fixed speed guarantee on a physical Vita. The old installed updater remains unchanged until 0.3.1 is applied; a full VPK installation is the fallback.
+
+Version 0.3.1 also fixes a guest-service crash caused by sorting the native `host-http.req` filename as a numeric desktop request. Native HTTP mailboxes and desktop requests now remain separate.
