@@ -37,6 +37,7 @@ static bool vf_supported(const char *op,const char *a,const char *b) {
  return !strcmp(op,"list") || !strcmp(op,"read") || !strcmp(op,"write") || !strcmp(op,"mkdir");
 }
 typedef struct {char name[256];bool directory;} VFEntry;
+static int vf_game_kind(const char *guest){char path[768],line[64];int kind=0;if(!vf_path(guest,path,sizeof(path)))return 0;FILE *f=fopen(path,"rb");if(!f)return 0;bool read=fgets(line,sizeof(line),f)!=NULL;fclose(f);if(read && sscanf(line,"VERDANT-GAME %d",&kind)==1 && kind>=1 && kind<=3)return kind;return 0;}
 static int vf_compare(const VFEntry *a,const VFEntry *b) {
  if(a->directory!=b->directory)return a->directory?-1:1;
  int result=strcasecmp(a->name,b->name);return result?result:strcmp(a->name,b->name);

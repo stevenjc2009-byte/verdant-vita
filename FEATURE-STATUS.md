@@ -65,3 +65,13 @@ Idle half-second redraws are removed. Covered windows and unchanged job output d
 The release retains the full compatible `verdant-vita-update.zip`. An installed 0.3.1 updater uses that package once. Once 0.3.2 is running, later same-runtime releases can use `verdant-vita-fast-update.zip` and reuse Image only after native hash validation, avoiding another roughly 56 MB runtime download. The standalone VPK remains self-contained.
 
 VitaSDK builds and sanitized host/regression tests pass. The actual RV32 Linux guest starts an interactive fast terminal and returns process roles on the host fixture. The prompt appeared in 0.414 seconds on that PC fixture, not a measured Vita time. Physical FPS, touch accuracy, post-update CPU load and CapUnlocker behavior still require console testing.
+
+## Vita 0.3.3 input, Notepad and games
+
+Keyboard key dimensions and layout are unchanged. Touch highlights a candidate, permits sliding to correct it, retains the candidate through small boundary jitter and types on release. Leaving the keys cancels. Joystick clicks stay immediate. The cursor is now a white arrow with a black outline; damage-based cursor restoration remains enabled.
+
+Notepad has File (New, Open, Save, Save As) and Edit (Select All, Copy, Cut, Paste) menus, select-all highlighting/replacement and a clipboard large enough for a supported small document. Open/Save As use full-path keyboard entry. Arbitrary range selection, undo/redo, a graphical file picker and unsaved-change confirmation are not yet implemented.
+
+The desktop's Terminal, Files, Notepad, Calculator and Games shortcuts are omitted from Start. Games contains native Snake, Falling Blocks and Brick Breaker, touch/D-pad input, pause/restart and persistent high scores. Game launch markers are created in `ux0:/verdant/games/` and open through Files. They run within Verdant without a Linux game process. Hidden/minimized games pause their updates. Doom is not bundled; see [FEATURE-LIST-VITA.md](FEATURE-LIST-VITA.md) for future options and native engine research.
+
+CPU charts identify each physical core's role. The Linux interpreter remains on Core 2 with one virtual CPU; this release does not claim equal utilization or a fix for the reported 81% plateau. VitaSDK and sanitized host tests cover keyboard correction/release/cancellation, cursor restoration, Notepad menus/save/clipboard, native game board/collision/rotation limits and layouts. Physical Vita accuracy and speed still require testing.

@@ -38,6 +38,7 @@
 #include "updater.h"
 #include "setup.h"
 #include "calculator.h"
+#include "games.h"
 #ifdef PLAT_VITA
 #include "native_update.h"
 #endif
@@ -55,13 +56,15 @@ enum {
   VD_REMOTE,
   VD_BACKUP,
   VD_UPDATER,
+  VD_GAMES,
   VD_APP_COUNT
 };
 static const char *vd_names[] = {
     "Terminal",     "Files",    "Notepad",    "Calculator",
     "Task manager", "Settings", "SSH & transfer", "Downloads",
     "Media",        "Packages", "Remote desktop", "Backups",
-    "System update"};
+    "System update", "Games"};
+static const int vd_desktop_apps[]={VD_TERM,VD_FILES,VD_EDIT,VD_CALC,VD_GAMES};
 typedef struct {
   bool used, minimized, maximized;
   bool toolbar_page;
@@ -69,8 +72,8 @@ typedef struct {
   unsigned pending, job;
   uint64_t job_tick;
   int entry_mode, image_w, image_h, cursor;
-  int task_tab, task_category; uint64_t performance_tick;
-  VCState calc;
+  int task_tab, task_category, edit_menu; bool edit_all; uint64_t performance_tick;
+  VCState calc; VGState game;
 #ifdef PLAT_VITA
   VUNativeCheck update_check;
 #endif
@@ -100,7 +103,7 @@ static struct {
   FILE *recording, *playing;
   uint32_t recorded;
   int playback_channels, playback_rate;
-  char notice[128], clipboard[4096], input_bytes[4096];
+  char notice[128], clipboard[VD_TEXT], input_bytes[4096];
   char status[96];
   char file_clipboard[512], bookmark[512];
   size_t input_len;
@@ -315,7 +318,7 @@ static int vd_new(int app) {
   w->session = -1;
   w->w = VD_W > 500 ? 500 : 300;
   w->h = 190;
-  if (app == VD_SETTINGS || app == VD_TASKS || app == VD_CALC || app == VD_UPDATER) { w->w = VD_W - 24; w->h = VD_H - 58; }
+  if (app == VD_SETTINGS || app == VD_TASKS || app == VD_CALC || app == VD_UPDATER || app == VD_GAMES) { w->w = VD_W - 24; w->h = VD_H - 58; }
   w->x = VD_PANEL_X + 6 + (slot % 3) * 6;
   w->y = 28 + (slot % 3) * 8;
   snprintf(w->title, sizeof(w->title), "%s", vd_names[app]);
@@ -349,7 +352,8 @@ static int vd_new(int app) {
     if (w->session < 0) {
       strcpy(w->text, "Four terminals maximum. Close one to start another.");
     }
-  } else if (app == VD_FILES)
+  } else if(app==VD_GAMES){mkdir(PLAT_SD "verdant/games",0777);strcpy(w->path,PLAT_GUEST_STORAGE "/verdant/games");}
+  else if (app == VD_FILES)
     vd_request(w, "list", w->path, NULL, NULL, NULL);
   else if (app == VD_TASKS)
     vd_request(w, "performance", NULL, NULL, NULL, NULL);
@@ -525,12 +529,15 @@ static bool desktop_input_byte(char c) {
       vd_request(w, "write", w->path, w->text, NULL, NULL);
       return true;
     }
+    if(c==1){w->edit_all=true;vd.dirty=true;return true;}
+    if(c==24){snprintf(vd.clipboard,sizeof(vd.clipboard),"%s",w->text);w->text[0]=0;w->cursor=0;w->edit_all=false;vd.dirty=true;return true;}
     if (c == 3) {
-      snprintf(vd.clipboard, sizeof(vd.clipboard), "%.4095s", w->text);
+      snprintf(vd.clipboard, sizeof(vd.clipboard), "%s", w->text);
       vd_notice("Copied editor text");
       return true;
     }
     if (c == 22) {
+      if(w->edit_all){s[0]=0;n=0;w->cursor=0;w->edit_all=false;}
       size_t len = strlen(vd.clipboard);
       if (n + len < max) {
         memmove(s + w->cursor + len, s + w->cursor, n - w->cursor + 1);
@@ -540,6 +547,7 @@ static bool desktop_input_byte(char c) {
       vd.dirty = true;
       return true;
     }
+    if(w->edit_all && (c==127 || c==8 || c=='\r' || c=='\n' || (unsigned char)c>=32)){s[0]=0;n=0;w->cursor=0;w->edit_all=false;}
     if (c == 127 || c == 8) {
       if (w->cursor) {
         memmove(s + w->cursor - 1, s + w->cursor, n - w->cursor + 1);
@@ -559,11 +567,12 @@ static bool desktop_input_byte(char c) {
       s[n - 1] = 0;
   } else if (c == '\r' || c == '\n') {
     if (w->entry_mode) {
+      if(w->app==VD_EDIT && !s[0]){vd_notice("Enter a full file path");return true;}
       if (strlen(s) >= sizeof(w->path)) {
         vd_notice("Path too long");
         return true;
       }
-      if (w->entry_mode == 1 || w->entry_mode == 6) {
+      if (w->entry_mode == 1 || w->entry_mode == 6 || w->entry_mode == 7 || w->entry_mode == 8) {
         strcpy(w->path, s);
         if (w->app == VD_FILES)
           vd_request(w, "list", w->path, NULL, NULL, NULL);
@@ -580,6 +589,8 @@ static bool desktop_input_byte(char c) {
       int mode = w->entry_mode;
       w->entry_mode = 0;
       s[0] = 0;
+      if(w->app==VD_EDIT && mode==7)vd_request(w,"read",w->path,NULL,NULL,NULL);
+      if(w->app==VD_EDIT && mode==8)vd_request(w,"write",w->path,w->text,NULL,NULL);
       if (mode == 6)
         strcpy(w->input, w->previous_input);
       vd.keyboard = false;
@@ -608,6 +619,7 @@ static void vd_navigation(int k) {
   if (!w)
     return;
   if (w->app == VD_EDIT && !w->entry_mode) {
+    w->edit_all=false;
     int n = strlen(w->text), pos = w->cursor;
     if (pos < 0 || pos > n)
       pos = n;
@@ -1037,12 +1049,12 @@ static void vd_tasks_draw(VDWindow *w,int x,int y,int width,int height) {
     int gw=(ww-6)/2,gh=(height-105)/2;if(gh<24)gh=24;
     for(int i=0;i<4;i++) {
       char title[48];
-      if(n->cpu_valid)snprintf(title,48,"Core %d: %d%%%s",i,n->cores[i],i==3?(n->display_core==3?" app":" sys"):"");
+      if(n->cpu_valid)snprintf(title,48,"Core %d %d%% %s",i,n->cores[i],i==0?"UI":i==1?"I/O":i==2?"Linux":n->display_core==3?"Display":"System");
       else snprintf(title,48,"Core %d: unavailable",i);
       vd_graph(xx+(i%2)*(gw+6),yy+(i/2)*(gh+4),gw,gh,i,title,100);
     }
     yy+=2*(gh+4);
-    snprintf(info,sizeof(info),"Vita ARM Cortex-A9 / %d MHz current\n%s\nGuest: RV32 Linux / 1 virtual CPU\nGuest utilization: %.1f%%\nBase speed: not exposed by API",n->cpu_mhz,n->display_core==3?"4 usable cores (CPU3 unlocked)":"3 usable cores (CPU3 locked)",vd_performance.guest_cpu);
+    snprintf(info,sizeof(info),"Vita ARM Cortex-A9 / %d MHz current\n%s\nLinux: 1 virtual CPU on Core 2\nGuest utilization: %.1f%%\nBase speed: not exposed by API",n->cpu_mhz,n->display_core==3?"4 usable cores (CPU3 unlocked)":"3 usable cores (CPU3 locked)",vd_performance.guest_cpu);
   } else if(w->task_category==1) {
     vd_graph(xx,yy,ww,60,5,"Linux RAM used (%)",100);yy+=68;
     snprintf(info,sizeof(info),"Linux RAM: %lu / %lu MiB used\nApp heap: %.1f / %.1f MiB\nVita free user pool: %.1f MiB\nVita free CDRAM: %.1f MiB\nMemory type/clock: unavailable",
@@ -1085,6 +1097,7 @@ static bool vd_window_obscured(int i) {
  }
  return false;
 }
+#include "games_ui.h"
 static void vd_render_window(int i) {
   VDWindow *w = &vd.windows[i];
   if(vd_window_obscured(i))
@@ -1102,6 +1115,7 @@ static void vd_render_window(int i) {
     vd_settings_draw(w,x,y,width,height);
   } else if (w->app == VD_TASKS) {
     vd_tasks_draw(w,x,y,width,height);
+  } else if(w->app==VD_GAMES){vd_games_draw(w,x,y,width,w->h-27);return;
   } else if (w->app == VD_CALC) {
     vd_calculator_draw(w,x,y,width,w->h-27);
     return;
@@ -1120,7 +1134,12 @@ static void vd_render_window(int i) {
                                            xx * w->image_w / dw);
         vd_px(x + xx, y + yy, (p[0] << 16) | (p[1] << 8) | p[2]);
       }
-  } else
+  } else if(w->app==VD_EDIT){
+    vd_rect(x,y,width,22,0x243e30);vd_label(x+6,y+7,"File",VD_TEXT_COLOR,46);vd_label(x+62,y+7,"Edit",VD_TEXT_COLOR,46);
+    if(w->edit_all)vd_rect(x,y+24,width,height-24,0x36543d);
+    vd_lines(w,x,y+26,width,height-26);
+    if(w->edit_menu){const char *file[]={"New","Open...","Save","Save As..."},*edit[]={"Select All","Copy","Cut","Paste"};int mx=x+(w->edit_menu==2?56:0);vd_rect(mx,y+22,148,104,0x294634);for(int j=0;j<4;j++)vd_label(mx+8,y+30+j*26,w->edit_menu==1?file[j]:edit[j],VD_TEXT_COLOR,132);}
+  }else
     vd_lines(w, x, y, width, height);
   int by = w->y + w->h - 18;
   if (w->app == VD_FILES) {
@@ -1135,8 +1154,8 @@ static void vd_render_window(int i) {
       vd_button(x + b * 47, by - 18, 44, extra[b]);
   } else if (w->app == VD_EDIT) {
     vd_button(x, by, 44, "Save");
-    vd_button(x + 48, by, 44, "Path");
-    vd_label(x + 98, by + 4, w->path, VD_ACCENT, width - 98);
+    vd_button(x + 48, by, 70, "Save As");
+    vd_label(x + 126, by + 4, w->path, VD_ACCENT, width - 126);
   } else if (w->app == VD_TASKS)
     vd_button(x, by, 70, "Refresh");
   else if (w->app == VD_SSH) {
@@ -1187,9 +1206,9 @@ static void vd_render_window(int i) {
   }
 }
 static struct {
-  uint8_t *address[70];
-  uint8_t bytes[70][4];
-  uint8_t size[70];
+  uint8_t *address[256];
+  uint8_t bytes[256][4];
+  uint8_t size[256];
   int count;
 #ifdef PLAT_VITA
   plat_damage_t bounds[2];
@@ -1207,7 +1226,9 @@ static void vd_cursor_draw(void) {
 #ifdef PLAT_VITA
   if(vd.touch_active)return;
 #endif
-  for (int yy = 0; yy < 10; yy++) for (int xx = 0; xx < 7; xx++) {
+  static const char *arrow[]={"B           ","BB          ","BWB         ","BWWB        ","BWWWB       ","BWWWWB      ","BWWWWWB     ","BWWWWWWB    ","BWWWWWWWB   ","BWWWWWWWWB  ","BWWWWBBBBBB ","BWWBWB      ","BWB BWB     ","BB  BWB     ","B    BWB    ","     BWB    ","      BB    ","            "};
+  for (int yy = 0; yy < 18; yy++) for (int xx = 0; xx < 12; xx++) {
+    if(arrow[yy][xx]==' ')continue;
     int x = vd.px + xx - vd.pan_x, y = vd.py + yy - vd.pan_y;
     int s = y >= VD_TERM_H;
     if (s) { x -= VD_PANEL_X; y -= VD_TERM_H; }
@@ -1222,9 +1243,8 @@ static void vd_cursor_draw(void) {
     vd_cursor_saved.address[i] = fb->base + (ptrdiff_t)y * fb->y_stride + (ptrdiff_t)x * fb->x_stride;
     vd_cursor_saved.size[i] = fb->bpp;
     memcpy(vd_cursor_saved.bytes[i], vd_cursor_saved.address[i], fb->bpp);
+    vd_px(vd.px+xx,vd.py+yy,arrow[yy][xx]=='B'?0x000000:0xffffff);
   }
-  vd_rect(vd.px, vd.py, 2, 10, 0xffffff);
-  vd_rect(vd.px, vd.py, 7, 2, 0xffffff);
 }
 static void vd_render(void) {
   if (!vd.active)
@@ -1268,9 +1288,9 @@ static void vd_render(void) {
   }
   vd_label(14, 12, "VERDANT", VD_ACCENT, 100);
   vd_label(110, 12, vd.status, VD_ACCENT, VD_W - 112);
-  for (int a = 0; a < 4; a++) {
-    vd_icon(14, 38 + a * 38, a);
-    vd_label(41, 44 + a * 38, vd_names[a], VD_TEXT_COLOR, 120);
+  for (int a = 0; a < 5; a++) {
+    vd_icon(14, 38 + a * 38, vd_desktop_apps[a]);
+    vd_label(41, 44 + a * 38, vd_names[vd_desktop_apps[a]], VD_TEXT_COLOR, 120);
   }
   plat_mutex_lock(&ui_lock);
   term_state.dirty = false;
@@ -1301,10 +1321,10 @@ static void vd_render(void) {
     strcpy(clock, "--:--");
   vd_label(VD_PANEL_X + VD_PANEL_W - 44, bar + 7, clock, VD_ACCENT, 44);
   if (vd.menu) {
-    int x = VD_PANEL_X + 2, y = VD_H - 22 - VD_APP_COUNT * 16;
-    vd_rect(x, y, 164, VD_APP_COUNT * 16, 0x1c3528);
-    for (int a = 0; a < VD_APP_COUNT; a++)
-      vd_label(x + 6, y + a * 16 + 4, vd_names[a], VD_TEXT_COLOR, 152);
+    int x = VD_PANEL_X + 2, y = VD_H - 22 - (VD_APP_COUNT-5) * 16;
+    vd_rect(x, y, 164, (VD_APP_COUNT-5) * 16, 0x1c3528);
+    for (int a = 4; a < VD_GAMES; a++)
+      vd_label(x + 6, y + (a-4) * 16 + 4, vd_names[a], VD_TEXT_COLOR, 152);
   }
   if (vd.keyboard) {
 #ifdef PLAT_VITA
@@ -1515,6 +1535,10 @@ static void vd_media_tick(void) {
     }
   }
 }
+static void vd_games_install(void) {
+ mkdir(PLAT_SD "verdant/games",0777);const char *names[]={"Snake","Falling Blocks","Brick Breaker"};
+ for(int i=0;i<3;i++){char path[256];snprintf(path,sizeof(path),PLAT_SD "verdant/games/%s.vgame",names[i]);FILE *f=fopen(path,"rb");if(f){fclose(f);continue;}f=fopen(path,"wb");if(f){fprintf(f,"VERDANT-GAME %d\n",i+1);fclose(f);}}
+}
 static void vd_action(VDWindow *w, int button) {
   char path[1024];
   if (w->app == VD_FILES) {
@@ -1531,6 +1555,15 @@ static void vd_action(VDWindow *w, int button) {
         w->selection = w->scroll = 0;
         vd_request(w, "list", w->path, NULL, NULL, NULL);
       } else {
+#ifdef PLAT_VITA
+        const char *extension=strrchr(path,'.');
+        if(extension && !strcmp(extension,".vgame")){
+          int kind=plat_game_kind(path);
+          if(kind>=1 && kind<=3){int game=vd_new(VD_GAMES);if(game>=0)vg_start(&vd.windows[game].game,kind,(uint32_t)plat_us());}
+          else vd_notice("Invalid native game launcher");
+          return;
+        }
+#endif
         if (strlen(path) >= sizeof(w->path)) {
           vd_notice("Path is too long");
           return;
@@ -1599,10 +1632,10 @@ static void vd_action(VDWindow *w, int button) {
     if (button == 0)
       vd_request(w, "write", w->path, w->text, NULL, NULL);
     else {
-      w->entry_mode = 1;
-      w->input[0] = 0;
+      w->entry_mode = 8;
+      w->input[0]=0;
       vd.keyboard = true;
-      vd_notice("Type save path, then Enter");
+      vd_notice("Save As: enter a full path, then Enter");
     }
   } else if (w->app == VD_SETTINGS) {
     if (button == 0)
@@ -1753,6 +1786,19 @@ static void vd_action(VDWindow *w, int button) {
   }
   vd.dirty = true;
 }
+static bool vd_notepad_click(VDWindow *w,int x,int y) {
+ int rx=x-w->x-5,ry=y-w->y-21;
+ if(ry>=0 && ry<22){w->edit_menu=rx<56?1:rx<112?2:0;return true;}
+ if(!w->edit_menu)return false;
+ int mx=w->edit_menu==2?56:0,menu=w->edit_menu;w->edit_menu=0;
+ if(rx<mx || rx>=mx+148 || ry<22 || ry>=126)return true;
+ int action=(ry-22)/26;
+ if(menu==2){unsigned char codes[]={1,3,24,22};desktop_input_byte(codes[action]);}
+ else if(action==0){w->text[0]=0;w->cursor=0;w->edit_all=false;strcpy(w->path,PLAT_GUEST_STORAGE "/notes.txt");}
+ else if(action==2)vd_action(w,0);
+ else {w->entry_mode=action==1?7:8;w->input[0]=0;vd.keyboard=true;vd_notice(action==1?"Open: enter full file path, then Enter":"Save As: enter full file path, then Enter");}
+ return true;
+}
 static void vd_keyboard_click(int x, int y) {
 #ifdef PLAT_VITA
   vd_keyboard_click_vita(x,y);
@@ -1817,10 +1863,10 @@ static void vd_click(int x, int y) {
     return;
   }
   if (vd.menu) {
-    int yy = VD_H - 22 - VD_APP_COUNT * 16;
+    int yy = VD_H - 22 - (VD_APP_COUNT-5) * 16;
     if (x >= VD_PANEL_X + 2 && x < VD_PANEL_X + 166 && y >= yy &&
         y < VD_H - 22) {
-      vd_new((y - yy) / 16);
+      vd_new(4+(y - yy) / 16);
       return;
     }
     vd.menu = false;
@@ -1861,8 +1907,8 @@ static void vd_click(int x, int y) {
       }
     }
   if (hit < 0) {
-    if (x < 150 && y >= 38 && y < 190)
-      vd_new((y - 38) / 38);
+    if (x < 150 && y >= 38 && y < 228)
+      vd_new(vd_desktop_apps[(y - 38) / 38]);
     return;
   }
   if (vd.focused != hit)
@@ -1909,6 +1955,9 @@ static void vd_click(int x, int y) {
       vd.drag_dx = x - w->x;
       vd.drag_dy = y - w->y;
     }
+  } else if(w->app==VD_GAMES){vd_games_click(w,x,y);
+  } else if(w->app==VD_EDIT && vd_notepad_click(w,x,y)) {
+    vd.dirty=true;
   } else if (w->app == VD_SETTINGS) {
     vd_settings_click(w,x,y);
   } else if (w->app == VD_CALC) {
@@ -1980,8 +2029,9 @@ static void vd_click(int x, int y) {
     }
   } else {
     if (w->app == VD_EDIT) {
+      w->edit_all=false;
       const char *s = w->text;
-      int row = w->scroll + (y - w->y - 21) / 11;
+      int row = w->scroll + (y - w->y - 47) / 11;
       while (*s && row)
         if (*s++ == '\n')
           row--;
@@ -2010,6 +2060,7 @@ static void vd_init(void) {
   vd.py = 80;
   mkdir(PLAT_SD "verdant", 0777);
   mkdir(PLAT_SD "verdant/bridge", 0777);
+  vd_games_install();
   FILE *platform_file = fopen(VD_BRIDGE "platform.txt", "wb");
   if (platform_file) {
     fprintf(platform_file, "%s\n", PLAT_SLUG);
@@ -2153,6 +2204,7 @@ static void vd_update(const plat_input_t *in) {
     }
   }
   vd_media_tick();
+  vd_games_tick(in);
   VDWindow *w = vd_focus();
   static uint64_t status_tick;
   uint64_t now = plat_us();
@@ -2281,7 +2333,11 @@ static void vd_update(const plat_input_t *in) {
     vd.pointer_dirty = true;
   }
   else vd.relative_was_down=false;
-  if (in->ptr_tapped)
+  bool keyboard_touch=false;
+#ifdef PLAT_VITA
+  keyboard_touch=vd_keyboard_touch_vita(in->ptr_down,in->ptr_tapped,x,y);
+#endif
+  if (in->ptr_tapped && !keyboard_touch)
     vd_click(x, y);
   if ((in->down & PLAT_BTN_A) && !in->ptr_down)
     vd_click(vd.px, vd.py);
@@ -2360,7 +2416,7 @@ static void vd_update(const plat_input_t *in) {
       vd_navigation(0);
     if (in->down & PLAT_BTN_RIGHT)
       vd_navigation(3);
-  } else if (w) {
+  } else if (w && w->app!=VD_GAMES) {
     if (in->down & PLAT_BTN_UP) {
       if (w->scroll > 0)
         w->scroll--;

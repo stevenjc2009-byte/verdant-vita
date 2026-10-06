@@ -115,6 +115,7 @@ int plat_update_title(const char *package) { return 0; }
 
 #ifdef PLAT_VITA
 #include "../vita/native_files.h"
+int plat_game_kind(const char *path){return vf_game_kind(path);}
 void plat_present_regions(const plat_damage_t regions[2]){plat_present(3);}
 bool plat_files_request(unsigned id,const char *op,const char *a,const char *b) {
  if(!getenv("VERDANT_NATIVE_FILES") || !vf_supported(op,a,b))return false;

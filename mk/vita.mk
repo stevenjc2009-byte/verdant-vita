@@ -93,7 +93,7 @@ $(BUILD)/eboot.bin: $(TARGET).velf
 	$(VITASDK)/bin/vita-make-fself $< $@
 
 $(BUILD)/param.sfo: mk/vita.mk | $(BUILD)
-	$(VITASDK)/bin/vita-mksfoex -s TITLE_ID=$(TITLE_ID) -s APP_VER=00.32 "$(APP_NAME)" $@
+	$(VITASDK)/bin/vita-mksfoex -s TITLE_ID=$(TITLE_ID) -s APP_VER=00.33 "$(APP_NAME)" $@
 
 $(VPK): $(BUILD)/eboot.bin $(BUILD)/param.sfo $(VITA_ICON) $(VITA_LIVEAREA)/bg.png $(VITA_LIVEAREA)/startup.png $(VITA_LIVEAREA)/template.xml tools/check_vita_assets.py | $(DISTDIR)
 	python tools/check_vita_assets.py

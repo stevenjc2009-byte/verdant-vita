@@ -3,6 +3,7 @@ enum { VK_SHIFT=256,VK_CTRL,VK_ALT,VK_CAPS,VK_HIDE,VK_LEFT,VK_DOWN,VK_UP,VK_RIGH
 typedef struct {const char *label;int code,units;} VKSpec;
 typedef struct {int x,y,w,h,code;const char *label;} VKButton;
 static VKButton vk_buttons[80];static int vk_count;
+static int vk_touch=-1;static bool vk_tracking;static int vk_last_x,vk_last_y;
 static int vd_keyboard_top(void) {return VD_H*2/5;}
 static void vd_keyboard_layout(void) {
  static const VKSpec rows[][16]={
@@ -30,14 +31,16 @@ static char vd_keyboard_character(int code) {
 }
 static void vd_keyboard_draw_vita(void) {
  vd_keyboard_layout();vd_rect(0,vd_keyboard_top(),VD_W,VD_H-vd_keyboard_top(),VD_SURFACE);
- vd_label(5,vd_keyboard_top()+5,"Keyboard  |  Shift / Ctrl / Alt apply to the next key",VD_ACCENT,VD_W-10);
+ VDWindow *focused=vd_focus();
+ vd_label(5,vd_keyboard_top()+5,focused && focused->entry_mode?focused->input:"Keyboard  |  Shift / Ctrl / Alt apply to the next key",VD_ACCENT,VD_W-10);
  for(int i=0;i<vk_count;i++) {
   VKButton *b=&vk_buttons[i];bool on=(b->code==VK_SHIFT && vd.shift)||(b->code==VK_CTRL && vd.ctrl)||(b->code==VK_ALT && vd.alt)||(b->code==VK_CAPS && vd.caps_lock);
-  vd_rect(b->x+1,b->y+1,b->w-2,b->h-2,on?0x477647:0x294634);
+  vd_rect(b->x+1,b->y+1,b->w-2,b->h-2,i==vk_touch?0x688d4f:on?0x477647:0x294634);
   char text[2]={0};const char *label=b->label;if(b->code>=33 && b->code<127){text[0]=vd_keyboard_character(b->code);label=text;}
   int tx=b->x+(b->w-(int)strlen(label)*8)/2;if(tx<b->x+2)tx=b->x+2;
   vd_label(tx,b->y+(b->h-8)/2,label,VD_TEXT_COLOR,b->x+b->w-tx-2);
  }
+ if(vk_tracking){char preview[80];snprintf(preview,sizeof(preview),"Release to type: %s",vk_touch>=0?vk_buttons[vk_touch].label:"cancelled");vd_rect(0,vd_keyboard_top(),VD_W,17,VD_SURFACE);vd_label(5,vd_keyboard_top()+5,preview,VD_ACCENT,VD_W-10);}
 }
 static void vd_keyboard_click_vita(int x,int y) {
  vd_keyboard_layout();
@@ -63,4 +66,22 @@ static void vd_keyboard_click_vita(int x,int y) {
   }
   vd.dirty=true;return;
  }
+}
+/* A touch commits on release. Slide into another key's interior to correct
+   the choice; small boundary jitter retains the highlighted key. */
+static bool vd_keyboard_touch_vita(bool down,bool tapped,int x,int y) {
+ if(!vd.keyboard){vk_tracking=false;vk_touch=-1;return false;}
+ if(tapped && y>=vd_keyboard_top()){vk_tracking=true;vk_touch=-1;vk_last_x=x;vk_last_y=y;}
+ if(!vk_tracking)return false;
+ vd_keyboard_layout();
+ if(down){
+  int candidate=-1;for(int i=0;i<vk_count;i++){VKButton *b=&vk_buttons[i];if(x>=b->x&&x<b->x+b->w&&y>=b->y&&y<b->y+b->h){candidate=i;break;}}
+  if(candidate>=0 && candidate!=vk_touch){VKButton *b=&vk_buttons[candidate];if(vk_touch<0 || (x>=b->x+3 && x<b->x+b->w-3 && y>=b->y+3 && y<b->y+b->h-3)){vk_touch=candidate;vd.dirty=true;}}
+  if(candidate<0 && vk_touch>=0){vk_touch=-1;vd.dirty=true;}
+  vk_last_x=x;vk_last_y=y;
+ }else{
+  int selected=vk_touch;vk_tracking=false;vk_touch=-1;vd.dirty=true;
+  if(selected>=0){VKButton b=vk_buttons[selected];vd_keyboard_click_vita(b.x+b.w/2,b.y+b.h/2);}
+ }
+ return true;
 }

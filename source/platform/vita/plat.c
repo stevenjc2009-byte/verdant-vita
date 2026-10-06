@@ -99,6 +99,7 @@ bool plat_surface(plat_surf s, plat_fb_t *out) {
 #include "frame_worker.h"
 #include "native_http.h"
 #include "file_worker.h"
+int plat_game_kind(const char *path){return vf_game_kind(path);}
 #include "clock_policy.h"
 
 /* ---------------------------------------------------------------- touch -- */

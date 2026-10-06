@@ -457,6 +457,7 @@ typedef struct {int x,y,w,h;} plat_damage_t;
 void plat_present_regions(const plat_damage_t regions[2]);
 void plat_desktop_scale(int percent);
 bool plat_files_request(unsigned id,const char *op,const char *a,const char *b);
+int plat_game_kind(const char *guest_path);
 void plat_http_start(void);
 void plat_http_stop(void);
 typedef struct {

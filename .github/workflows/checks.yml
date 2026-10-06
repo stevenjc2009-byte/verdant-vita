@@ -50,3 +50,7 @@ jobs:
           gcc -O1 -g -fsanitize=address,undefined -DVERDANT_TEST_VITA -Isource/core -Isource/platform -Isource/platform/host -Ivendor/mini-rv32ima-mmu -Ivendor/ctr-osk-rt/include -Ivendor/ctr-osk-rt/source tests/desktop_test.c source/platform/host/plat.c vendor/ctr-osk-rt/source/ctrosk.c vendor/ctr-osk-rt/source/ctrosk_gfx.c -lcurl -lz -lcrypto -lpthread -lm -o /tmp/verdant-desktop-test
           desktop_dir=$(mktemp -d)
           (cd "$desktop_dir" && ASAN_OPTIONS=detect_leaks=0 /tmp/verdant-desktop-test)
+      - name: Test native games
+        run: |
+          gcc -O1 -g -fsanitize=address,undefined tests/games_test.c -o /tmp/verdant-games-test
+          /tmp/verdant-games-test

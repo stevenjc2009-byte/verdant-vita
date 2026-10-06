@@ -70,7 +70,7 @@ static void vita_http_process(void) {
     curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,1L);
     curl_easy_setopt(curl,CURLOPT_SSL_VERIFYHOST,2L);
     curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,0L);
-    curl_easy_setopt(curl,CURLOPT_USERAGENT,"Verdant-Vita/0.3.2");
+    curl_easy_setopt(curl,CURLOPT_USERAGENT,"Verdant-Vita/0.3.3");
     curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT,20L);
     curl_easy_setopt(curl,CURLOPT_TIMEOUT,600L);
     curl_easy_setopt(curl,CURLOPT_LOW_SPEED_TIME,30L);

@@ -155,6 +155,24 @@ int main(void) {
   assert(w->cursor == 13);
   desktop_input_byte(3);
   assert(!strcmp(vd.clipboard, w->text));
+  /* File/Edit actions use the actual Notepad menu hit path. */
+  vd.focused=edit;vd_notepad_click(w,w->x+12,w->y+28);assert(w->edit_menu==1);
+  vd_notepad_click(w,w->x+12,w->y+21+22+3*26+8);assert(w->entry_mode==8 && vd.keyboard);
+  const char *savepath="/mnt/vita/ux0/menu-save.txt";for(const char *ch=savepath;*ch;ch++)desktop_input_byte(*ch);desktop_input_byte(13);
+  assert(!strcmp(w->path,savepath) && !strcmp(w->pending_op,"write"));response(w,"OK\nSaved");assert(!strcmp(w->text,"first\nsecond\n"));
+  vd_notepad_click(w,w->x+70,w->y+28);vd_notepad_click(w,w->x+70,w->y+21+22+8);assert(w->edit_all);
+  vd_notepad_click(w,w->x+70,w->y+28);vd_notepad_click(w,w->x+70,w->y+21+22+26+8);assert(!strcmp(vd.clipboard,w->text));
+  desktop_input_byte('Z');assert(!strcmp(w->text,"Z"));desktop_input_byte(1);desktop_input_byte(22);assert(!strcmp(w->text,"first\nsecond\n"));
+#ifdef PLAT_VITA
+  vd.keyboard=true;vd_keyboard_layout();int a=-1,b=-1;for(int k=0;k<vk_count;k++){if(vk_buttons[k].code=='a')a=k;if(vk_buttons[k].code=='s')b=k;}assert(a>=0&&b>=0);
+  w->text[0]=0;w->cursor=0;VKButton ka=vk_buttons[a],kb=vk_buttons[b];
+  assert(vd_keyboard_touch_vita(true,true,ka.x+ka.w/2,ka.y+ka.h/2));assert(!w->text[0] && vk_touch==a);
+  vd_keyboard_touch_vita(true,false,kb.x+1,kb.y+kb.h/2);assert(vk_touch==a); /* Boundary jitter. */
+  vd_keyboard_touch_vita(true,false,kb.x+kb.w/2,kb.y+kb.h/2);assert(vk_touch==b); /* Slide to correct. */
+  vd_keyboard_touch_vita(false,false,0,0);assert(!strcmp(w->text,"s"));
+  vd_keyboard_touch_vita(true,true,ka.x+ka.w/2,ka.y+ka.h/2);vd_keyboard_touch_vita(true,false,ka.x,vd_keyboard_top()-1);vd_keyboard_touch_vita(false,false,0,0);assert(!strcmp(w->text,"s"));
+  vd.keyboard=false;
+#endif
   int files = vd_new(VD_FILES);
   assert(!strcmp(vd.windows[files].path, PLAT_GUEST_STORAGE));
   VDWindow *f = &vd.windows[files];
@@ -275,6 +293,10 @@ int main(void) {
   for(int category=0;category<5;category++) { manager->task_category=category;vd.dirty=true;vd.last_render=0;vd_render();
     if(category==0)capture_desktop("tasks-150.ppm"); }
 #endif
+  vd_change_scale(150-vd.ui_scale);int games=vd_new(VD_GAMES);assert(games>=0);VDWindow *game=&vd.windows[games];
+  for(int kind=0;kind<=3;kind++){vg_start(&game->game,kind,12);vd.dirty=true;vd.last_render=0;vd_render();char name[64];snprintf(name,sizeof(name),"games-%d-150.ppm",kind);capture_desktop(name);}
+  vd_games_install();assert(plat_game_kind(PLAT_GUEST_STORAGE "/verdant/games/Snake.vgame")==1);
+  assert(plat_game_kind(PLAT_GUEST_STORAGE "/../bad.vgame")==0);vd_close(games);
   int updater=vd_new(VD_UPDATER);vd.focused=updater;vd_change_scale(50);
   vd.dirty=true;vd.last_render=0;vd_render();capture_desktop("updater-150.ppm");
   vd_shutdown();
