@@ -10,6 +10,7 @@
 - Offline tools: corrupt update rejection, preservation of Linux disk/preferences, backup contents, settings recovery and recoverable disk reset pass on disposable files.
 - GitHub updater: platform/version/HTTPS-host/path rejection, package corruption rejection and verified staging pass. Native apply tests cover interrupted-rename recovery and preservation of disk/settings. Physical CIA self-install and Vita installed-file permissions are untested.
 - Live GitHub checks from the actual RV32 guest pass for both repositories with CA verification. A TCP bridge defect was diagnosed and corrected: premature SYN acknowledgement, duplicate/partial guest writes, RX-queue backpressure and repeated FIN transmission. The updater also retries interrupted HTTPS requests without bypassing certificate checks.
+- Complete published 0.2.1 install ZIPs for both platforms pass staging and native file-application tests on disposable host storage, including extraction/application of the real Vita VPK. This does not exercise physical CIA installation or Vita access permissions. HTTP/SSH/VNC guest regression checks also pass after the TCP change.
 
 Network testing uncovered the upstream image's inactive eth0 and 1970 clock. Startup configuration and console-derived time were added; tests passed on a fresh disk. Dropbear's blank-password network option was removed.
 
