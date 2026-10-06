@@ -1,4 +1,8 @@
-# Verdant Desktop for PS Vita — experimental 0.2.4
+# Verdant Desktop for PS Vita — experimental 0.2.5
+
+Version 0.2.5 renders into cached memory and copies completed frames into alternating CDRAM display buffers, switching on vertical blank. This addresses the reported screen flashing during desktop/cursor refreshes. Analog pointer movement is faster and uses elapsed time with fractional pixels, so its speed remains consistent across redraw rates. Rendering and pointer tests pass on the host; physical smoothness needs confirmation.
+
+At the Buildroot console login, enter **root**. The bundled local account has an empty password; press Enter if prompted. Existing user-set passwords remain unchanged.
 
 Version 0.2.4 corrects the startup display failure recorded in the console boot log: 0x80290006 (invalid framebuffer update timing). Display initialization now schedules the framebuffer on the next frame, then waits for vertical blank before drawing. Physical launch after this fix still needs confirmation.
 

@@ -1,8 +1,8 @@
 # Verdant for PlayStation Vita
 
-Version **0.2.4** fixes the display initialization error **0x80290006** found in the supplied console boot log. Install the standalone **verdant.vpk** through VitaShell, replacing the existing application. It includes Linux and performs automatic first-launch setup; no separate ZIP extraction is required. Physical boot after this fix still needs confirmation. See [VITA.md](VITA.md).
+Version **0.2.5** addresses desktop redraw flashing using cached drawing and alternating display buffers, and increases analog pointer responsiveness with time-based movement. Install the standalone **verdant.vpk** through VitaShell, replacing the existing application. Local Buildroot login: **root**, with an empty password unless you changed it. See [VITA.md](VITA.md).
 
-# Verdant Desktop — experimental 0.2.4 (Vita one-click setup)
+# Verdant Desktop — experimental 0.2.5 (Vita one-click setup)
 
 An original dark-green desktop for real Linux inside a homebrew application, based on 3DS-CLI 5.3. **This is an experimental build, not a complete Linux Mint port. No physical console has been tested.** See FEATURE-STATUS.md and TEST-RESULTS.md.
 

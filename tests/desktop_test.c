@@ -14,6 +14,19 @@ static void response(VDWindow *w, const char *data) {
   vd_poll_bridge();
 }
 int main(void) {
+  int64_t fine = 0, coarse = 0;
+  int fine_distance = 0, coarse_distance = 0;
+  for (int i = 0; i < 100; i++) fine_distance += vd_pointer_step(128, 10000, &fine);
+  for (int i = 0; i < 20; i++) coarse_distance += vd_pointer_step(128, 50000, &coarse);
+  assert(fine_distance == VD_W * 3 / 2);
+  assert(coarse_distance == fine_distance);
+  fine = 0;
+  int gentle = 0;
+  for (int i = 0; i < 100; i++) gentle += vd_pointer_step(1, 10000, &fine);
+  assert(gentle > 0); /* Slow movement must not disappear through truncation. */
+  vd_pointer_step(0, 10000, &fine);
+  assert(fine == 0);
+  assert(vd_pointer_step(128, 10000000, &fine) <= VD_W * 3 / 40);
   assert(plat_init());
   plat_mutex_init(&ui_lock);
   cfg_defaults(&g_cfg);

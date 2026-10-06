@@ -69,6 +69,8 @@ static struct {
   unsigned serial;
   uint64_t last_poll, last_render, last_clock;
   uint64_t last_job, last_media;
+  uint64_t pointer_tick;
+  int64_t pointer_fraction_x, pointer_fraction_y;
   uint64_t quit_deadline;
   FILE *recording, *playing;
   uint32_t recorded;
@@ -132,8 +134,8 @@ static void vd_rect(int x, int y, int w, int h, uint32_t c) {
   int x0 = x < vd.pan_x ? vd.pan_x : x, y0 = y < vd.pan_y ? vd.pan_y : y;
   int x1 = x + w > VD_W + vd.pan_x ? VD_W + vd.pan_x : x + w;
   int y1 = y + h > VD_H + vd.pan_y ? VD_H + vd.pan_y : y + h;
-  for (int xx = x0; xx < x1; xx++)
-    for (int yy = y0; yy < y1; yy++)
+  for (int yy = y0; yy < y1; yy++)
+    for (int xx = x0; xx < x1; xx++)
       vd_px(xx, yy, c);
 }
 static void vd_char(int x, int y, char c, uint32_t fg, int scale) {
@@ -1753,6 +1755,18 @@ static void vd_init(void) {
   strcpy(w->title, "Linux console");
   vd.focused = 0;
 }
+/* At full deflection cross one-and-a-half desktop widths per second.
+   Fractional pixels survive between polls; rendering speed cannot change
+   pointer sensitivity. A long stall must not throw the pointer offscreen. */
+static int vd_pointer_step(int axis, uint64_t elapsed, int64_t *fraction) {
+  if (!axis) { *fraction = 0; return 0; }
+  if (elapsed > 50000) elapsed = 50000;
+  const int64_t denominator = 256000000;
+  int64_t distance = *fraction + (int64_t)axis * VD_W * 3 * elapsed;
+  int pixels = (int)(distance / denominator);
+  *fraction = distance % denominator;
+  return pixels;
+}
 static void vd_update(const plat_input_t *in) {
   vd_poll_bridge();
   if (!vd.update_checked && !vd.recovery) {
@@ -1781,6 +1795,8 @@ static void vd_update(const plat_input_t *in) {
   VDWindow *w = vd_focus();
   static uint64_t status_tick;
   uint64_t now = plat_us();
+  uint64_t pointer_elapsed = vd.pointer_tick ? now - vd.pointer_tick : 16667;
+  vd.pointer_tick = now;
   if (now - status_tick > 2000000) {
     FILE *clock_file = fopen(VD_BRIDGE "host-time", "wb");
     if (clock_file) {
@@ -1848,8 +1864,8 @@ static void vd_update(const plat_input_t *in) {
           vd.windows[i].y += in->pan_y / 24;
         }
     } else {
-      vd.px += in->pan_x / 24;
-      vd.py -= in->pan_y / 24;
+      vd.px += vd_pointer_step(in->pan_x, pointer_elapsed, &vd.pointer_fraction_x);
+      vd.py += vd_pointer_step(-in->pan_y, pointer_elapsed, &vd.pointer_fraction_y);
     }
     if (vd.px < 0)
       vd.px = 0;
@@ -1860,6 +1876,8 @@ static void vd_update(const plat_input_t *in) {
     if (vd.py >= VD_H)
       vd.py = VD_H - 1;
     vd.dirty = true;
+  } else {
+    vd.pointer_fraction_x = vd.pointer_fraction_y = 0;
   }
   int x = in->ptr_x + VD_PANEL_X, y = in->ptr_y + PLAT_TERM_H;
   if (in->ptr_down) {

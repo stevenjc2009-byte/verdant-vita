@@ -1,4 +1,4 @@
-# Validation — experimental 0.2.4
+# Validation — experimental 0.2.5
 
 - devkitARM ARMv6: 3DSX/CIA generated; check3dsx relocation validation passes.
 - VitaSDK channel 2026.08: native ARM executable, SELF and VPK generated, including camera/mic/audio adapters and original LiveArea assets. Compilation does not establish physical operation.
@@ -21,3 +21,5 @@ The user reported Vita installation error 0x8010113D on 0.2.1. Inspection found 
 The user subsequently reported an immediate return to LiveArea after installing only the thin VPK and confirmed that no runtime ZIP was extracted. Version 0.2.3 adds a standalone bundled setup VPK, native file-copy/hash verification, automatic first-launch setup, conservative Vita heap/RAM limits and startup logging. Sanitized installer tests cover fresh installation, repeat launches, partial-copy recovery, missing-file repair, corrupt-bundle rejection and preservation of existing Linux disk/settings. A physical Vita boot remains unverified.
 
 The user's 0.2.3 boot.log confirms successful entry into main and framebuffer allocation/base lookup, followed by display setup error 0x80290006. Version 0.2.4 replaces immediate framebuffer updates with next-frame scheduling and waits for vertical blank. This corrects the observed failing call; subsequent physical boot remains unverified.
+
+Version 0.2.5 responds to the user's confirmed desktop boot and reported redraw flashes/slow analog pointer. The Vita renderer uses a persistent cached drawing buffer plus two CDRAM scanout buffers, copying only completed frames and switching at vertical blank. Pointer tests verify equal distance at different polling rates, fractional slow movement, neutral reset and capped movement after stalls. Physical flicker/performance still requires confirmation. The bundled /etc/shadow was inspected: local root has an empty password.

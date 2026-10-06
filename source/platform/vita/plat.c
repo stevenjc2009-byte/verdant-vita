@@ -64,10 +64,13 @@ static char        g_model[64];
 #define VITA_FB_PITCH    (VITA_FB_PITCH_PX * 4)
 #define VITA_FB_BYTES    (((size_t)VITA_FB_PITCH * VITA_SCREEN_H + 0x3FFFF) & ~(size_t)0x3FFFF)
 
-static SceUID   vita_fb_uid = -1;
+static SceUID   vita_fb_uid[2] = {-1, -1};
+static uint8_t *vita_scanout[2];
+static int vita_front;
 static uint8_t *vita_fb;
 
-/* Single-buffered like the psp, not double like the switch. */
+/* Drawing uses cached ordinary RAM. Only completed frames are copied into
+   the inactive CDRAM scanout buffer, so clearing/repainting cannot flash. */
 bool plat_surface(plat_surf s, plat_fb_t *out) {
   if (!vita_fb) return false;
   out->x_stride = 4;
@@ -88,11 +91,18 @@ bool plat_surface(plat_surf s, plat_fb_t *out) {
   return false;
 }
 
-/* Scanned out in place so there's nothing to actually push, the wait is only
-   here so a tight redraw loop doesn't spin */
 void plat_present(unsigned mask) {
   if (!mask || !vita_fb) return;
-  sceDisplayWaitVblankStart();
+  int back = vita_front ^ 1;
+  memcpy(vita_scanout[back], vita_fb, VITA_FB_PITCH * VITA_SCREEN_H);
+  SceDisplayFrameBuf fb = {
+    .size = sizeof(fb), .base = vita_scanout[back],
+    .pitch = VITA_FB_PITCH_PX, .pixelformat = SCE_DISPLAY_PIXELFORMAT_A8B8G8R8,
+    .width = VITA_SCREEN_W, .height = VITA_SCREEN_H,
+  };
+  if (sceDisplaySetFrameBuf(&fb, SCE_DISPLAY_SETBUF_NEXTFRAME) < 0) return;
+  sceDisplayWaitSetFrameBuf();
+  vita_front = back;
 }
 
 /* ---------------------------------------------------------------- touch -- */
@@ -128,19 +138,24 @@ static void vita_init_note(const char *step,int result){
 
 bool plat_init(void) {
   vm_init();
-  vita_fb_uid = sceKernelAllocMemBlock("3dscli_fb",
+  for (int i = 0; i < 2; i++) {
+  vita_fb_uid[i] = sceKernelAllocMemBlock("verdant_scanout",
                                        SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
                                        VITA_FB_BYTES, NULL);
-  vita_init_note("framebuffer allocation",vita_fb_uid);
-  if (vita_fb_uid < 0) return false;
-  int fb_result=sceKernelGetMemBlockBase(vita_fb_uid, (void **)&vita_fb);
+  vita_init_note("framebuffer allocation",vita_fb_uid[i]);
+  if (vita_fb_uid[i] < 0) return false;
+  int fb_result=sceKernelGetMemBlockBase(vita_fb_uid[i], (void **)&vita_scanout[i]);
   vita_init_note("framebuffer base",fb_result);
   if (fb_result < 0) return false;
-  memset(vita_fb, 0, VITA_FB_BYTES);
+  memset(vita_scanout[i], 0, VITA_FB_BYTES);
+  }
+  vita_fb = calloc(1, VITA_FB_PITCH * VITA_SCREEN_H);
+  vita_init_note("cached drawing buffer",vita_fb ? 0 : -1);
+  if (!vita_fb) return false;
 
   SceDisplayFrameBuf fb = {
     .size        = sizeof(fb),
-    .base        = vita_fb,
+    .base        = vita_scanout[0],
     .pitch       = VITA_FB_PITCH_PX,
     .pixelformat = SCE_DISPLAY_PIXELFORMAT_A8B8G8R8,
     .width       = VITA_SCREEN_W,
@@ -149,7 +164,7 @@ bool plat_init(void) {
   /* The Vita user display service rejects immediate updates with
      SCE_DISPLAY_ERROR_INVALID_UPDATETIMING (0x80290006). Schedule scanout
      for the next frame, as used by the VitaSDK display samples. */
-  fb_result=sceDisplaySetFrameBuf(&fb, SCE_DISPLAY_SETBUF_NEXTFRAME);
+  int fb_result=sceDisplaySetFrameBuf(&fb, SCE_DISPLAY_SETBUF_NEXTFRAME);
   vita_init_note("display setup",fb_result);
   if (fb_result < 0) return false;
   sceDisplayWaitVblankStart();
@@ -188,7 +203,10 @@ bool plat_init(void) {
 void plat_exit(void) {
   vm_exit();
   if (caps.sensors) sceMotionStopSampling();
-  if (vita_fb_uid >= 0) sceKernelFreeMemBlock(vita_fb_uid);
+  free(vita_fb);
+  vita_fb = NULL;
+  for (int i = 0; i < 2; i++)
+    if (vita_fb_uid[i] >= 0) sceKernelFreeMemBlock(vita_fb_uid[i]);
   sceKernelExitProcess(0);
 }
 
