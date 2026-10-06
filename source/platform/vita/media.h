@@ -97,7 +97,7 @@ static int vm_mic_read(uint8_t *out, int max) {
       return 0;
     atomic_store(&vm_mic_run, true);
     vm_mic_thread =
-        sceKernelCreateThread("verdant_mic", vm_mic_entry, 0x10000100, 32768, 0, 0, NULL);
+        sceKernelCreateThread("verdant_mic", vm_mic_entry, 0x10000100, 32768, 0, SCE_KERNEL_CPU_MASK_USER_1, NULL);
     if (vm_mic_thread < 0 || sceKernelStartThread(vm_mic_thread, 0, NULL) < 0) {
       atomic_store(&vm_mic_run, false);
       if (vm_mic_thread >= 0)
@@ -138,7 +138,7 @@ static int vm_audio_write(const uint8_t *data, int len) {
       return 0;
     atomic_store(&vm_audio_run, true);
     vm_audio_thread =
-        sceKernelCreateThread("verdant_audio", vm_audio_entry, 0x10000100, 32768, 0, 0, NULL);
+        sceKernelCreateThread("verdant_audio", vm_audio_entry, 0x10000100, 32768, 0, SCE_KERNEL_CPU_MASK_USER_1, NULL);
     if (vm_audio_thread < 0 || sceKernelStartThread(vm_audio_thread, 0, NULL) < 0) {
       atomic_store(&vm_audio_run, false);
       if (vm_audio_thread >= 0)

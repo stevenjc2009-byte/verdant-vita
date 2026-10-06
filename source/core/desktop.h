@@ -15,9 +15,21 @@
 
 #define VD_MAX 12
 #define VD_TEXT 16384
-#define VD_W PLAT_TERM_W
-#define VD_H (PLAT_TERM_H + PLAT_PANEL_H)
-#define VD_PANEL_X ((PLAT_TERM_W - PLAT_PANEL_W) / 2)
+#define VD_SCALE (vd.ui_scale ? vd.ui_scale : 100)
+#ifdef PLAT_VITA
+#define VD_TERM_W (PLAT_TERM_W * 100 / VD_SCALE)
+#define VD_TERM_H (PLAT_TERM_H * 100 / VD_SCALE)
+#define VD_PANEL_W (PLAT_PANEL_W * 100 / VD_SCALE)
+#define VD_PANEL_H (PLAT_PANEL_H * 100 / VD_SCALE)
+#else
+#define VD_TERM_W PLAT_TERM_W
+#define VD_TERM_H PLAT_TERM_H
+#define VD_PANEL_W PLAT_PANEL_W
+#define VD_PANEL_H PLAT_PANEL_H
+#endif
+#define VD_W VD_TERM_W
+#define VD_H (VD_TERM_H + VD_PANEL_H)
+#define VD_PANEL_X ((VD_TERM_W - VD_PANEL_W) / 2)
 #define VD_BRIDGE PLAT_SD "verdant/bridge/"
 #define VD_BG 0x10241d
 #define VD_SURFACE 0x182d25
@@ -52,6 +64,7 @@ typedef struct {
   int app, x, y, w, h, ox, oy, ow, oh, workspace, scroll, selection, session;
   unsigned pending, job;
   int entry_mode, image_w, image_h, cursor;
+  int task_tab, task_category; uint64_t performance_tick;
   unsigned char *image;
   char pending_op[24];
   long output_offset;
@@ -62,6 +75,8 @@ static struct {
   bool active, dirty, menu, keyboard, touchpad, joined, ptr_was_down, shift,
       ctrl, alt, symbols, cut, recovery, quitting, resizing;
   bool auto_update, update_checked;
+  bool pointer_dirty;
+  int ui_scale;
   int workspace, focused, px, py, drag, drag_dx, drag_dy, pan_x, pan_y,
       wallpaper;
   int select_start, select_end;
@@ -116,10 +131,10 @@ static VDWindow *vd_focus(void) {
 static void vd_px(int x, int y, uint32_t c) {
   x -= vd.pan_x;
   y -= vd.pan_y;
-  int screen = y >= PLAT_TERM_H;
+  int screen = y >= VD_TERM_H;
   if (screen) {
     x -= VD_PANEL_X;
-    y -= PLAT_TERM_H;
+    y -= VD_TERM_H;
   }
   plat_fb_t *fb = &vd.fb[screen];
   if (x < 0 || y < 0 || x >= fb->w || y >= fb->h || !fb->base)
@@ -129,14 +144,34 @@ static void vd_px(int x, int y, uint32_t c) {
   PLAT_PX(p, c >> 16, c >> 8, c);
 }
 static void vd_rect(int x, int y, int w, int h, uint32_t c) {
-  /* Clip before iterating; no work for invisible parts of the virtual desktop.
-   */
-  int x0 = x < vd.pan_x ? vd.pan_x : x, y0 = y < vd.pan_y ? vd.pan_y : y;
-  int x1 = x + w > VD_W + vd.pan_x ? VD_W + vd.pan_x : x + w;
-  int y1 = y + h > VD_H + vd.pan_y ? VD_H + vd.pan_y : y + h;
-  for (int yy = y0; yy < y1; yy++)
-    for (int xx = x0; xx < x1; xx++)
-      vd_px(xx, yy, c);
+  if (w <= 0 || h <= 0) return;
+  if (w == 1 && h == 1) { vd_px(x, y, c); return; }
+  /* Clip once per physical surface, then write contiguous rows. */
+  for (int s = 0; s < 2; s++) {
+    plat_fb_t *fb = &vd.fb[s];
+    if (!fb->base) continue;
+    int left = x - vd.pan_x - (s ? VD_PANEL_X : 0);
+    int top = y - vd.pan_y - (s ? VD_TERM_H : 0);
+    int right = left + w, bottom = top + h;
+    if (left < 0) left = 0;
+    if (top < 0) top = 0;
+    if (right > fb->w) right = fb->w;
+    if (bottom > fb->h) bottom = fb->h;
+    if (left >= right || top >= bottom) continue;
+    union { uint32_t word; uint8_t bytes[4]; } pixel = {0};
+    PLAT_PX(pixel.bytes, c >> 16, c >> 8, c);
+    for (int yy = top; yy < bottom; yy++) {
+      uint8_t *row = fb->base + (ptrdiff_t)yy * fb->y_stride + (ptrdiff_t)left * fb->x_stride;
+      if (fb->bpp == 4 && fb->x_stride == 4 && !((uintptr_t)row & 3)) {
+        uint32_t *words = (uint32_t *)row;
+        for (int xx = 0; xx < right - left; xx++)
+          words[xx] = (words[xx] & 0xff000000u) | pixel.word;
+      } else {
+        for (int xx = left; xx < right; xx++, row += fb->x_stride)
+          PLAT_PX(row, c >> 16, c >> 8, c);
+      }
+    }
+  }
 }
 static void vd_char(int x, int y, char c, uint32_t fg, int scale) {
   if ((unsigned char)c < 32 || (unsigned char)c > 126)
@@ -213,8 +248,8 @@ static void vd_save_preferences(void) {
   if (!f)
     return;
   fprintf(f,
-          "joined=%d\ntouchpad=%d\nwallpaper=%d\nworkspace=%d\nbookmark=%s\n",
-          vd.joined, vd.touchpad, vd.wallpaper, vd.workspace, vd.bookmark);
+          "joined=%d\ntouchpad=%d\nwallpaper=%d\nworkspace=%d\nbookmark=%s\nui_scale=%d\n",
+          vd.joined, vd.touchpad, vd.wallpaper, vd.workspace, vd.bookmark, VD_SCALE);
   if (!fclose(f))
     rename(temp, PLAT_SD "verdant/preferences.cfg");
   cfg_save(&g_cfg);
@@ -229,6 +264,12 @@ static void vd_terminal_preferences(TermState *t) {
   t->zoom_y = g_cfg.zoom_y;
 }
 static int vd_new(int app) {
+  if(app==VD_UPDATER) for(int i=0;i<VD_MAX;i++) {
+    VDWindow *w=&vd.windows[i];
+    if(w->used && w->app==VD_UPDATER) {
+      w->minimized=false;w->workspace=vd.workspace;vd.focused=i;vd.menu=false;vd.dirty=true;return i;
+    }
+  }
   int slot = -1;
   for (int i = 0; i < VD_MAX; i++)
     if (!vd.windows[i].used) {
@@ -247,6 +288,7 @@ static int vd_new(int app) {
   w->session = -1;
   w->w = VD_W > 500 ? 500 : 300;
   w->h = 190;
+  if (app == VD_SETTINGS || app == VD_TASKS) { w->w = VD_W - 24; w->h = VD_H - 58; }
   w->x = VD_PANEL_X + 6 + (slot % 3) * 6;
   w->y = 28 + (slot % 3) * 8;
   snprintf(w->title, sizeof(w->title), "%s", vd_names[app]);
@@ -283,7 +325,7 @@ static int vd_new(int app) {
   } else if (app == VD_FILES)
     vd_request(w, "list", w->path, NULL, NULL, NULL);
   else if (app == VD_TASKS)
-    vd_request(w, "tasks", NULL, NULL, NULL, NULL);
+    vd_request(w, "performance", NULL, NULL, NULL, NULL);
   else if (app == VD_EDIT) {
     strcpy(w->path, "/root/notes.txt");
     strcpy(w->text, "");
@@ -369,18 +411,18 @@ static void vd_close(int idx) {
 static void vd_move_screen(VDWindow *w) {
   if (!w)
     return;
-  bool lower = w->y < PLAT_TERM_H;
-  w->y = lower ? PLAT_TERM_H + 4 : 26;
-  int max_height = (lower ? PLAT_PANEL_H : PLAT_TERM_H) - 30;
+  bool lower = w->y < VD_TERM_H;
+  w->y = lower ? VD_TERM_H + 4 : 26;
+  int max_height = (lower ? VD_PANEL_H : VD_TERM_H) - 30;
   if (w->h > max_height)
     w->h = max_height;
-  if (lower && w->w > PLAT_PANEL_W)
-    w->w = PLAT_PANEL_W;
+  if (lower && w->w > VD_PANEL_W)
+    w->w = VD_PANEL_W;
   w->maximized = false;
   if (w->x < VD_PANEL_X)
     w->x = VD_PANEL_X;
-  if (w->x + w->w > VD_PANEL_X + PLAT_PANEL_W)
-    w->x = VD_PANEL_X + PLAT_PANEL_W - w->w;
+  if (w->x + w->w > VD_PANEL_X + VD_PANEL_W)
+    w->x = VD_PANEL_X + VD_PANEL_W - w->w;
   vd.dirty = true;
 }
 static void vd_cycle(void) {
@@ -663,6 +705,40 @@ static void vd_navigation(int k) {
                        "\033[H", "\033[F", "\033[5~", "\033[6~"};
   rx_push_str(seq[k]);
 }
+static struct {
+#ifdef PLAT_VITA
+  plat_performance_t native;
+#endif
+  float guest_cpu, rx, tx, read, write;
+  unsigned long memory_total, memory_used;
+  unsigned long long disk_total,disk_free;
+  int count, history_at, history_count;
+  int history[7][60];
+} vd_performance;
+static void vd_performance_parse(const char *payload) {
+  const char *p=payload;
+  while(*p) {
+    if(!strncmp(p,"CPU|",4)) sscanf(p+4,"%f",&vd_performance.guest_cpu);
+    else if(!strncmp(p,"MEM|",4)) sscanf(p+4,"%lu|%lu",&vd_performance.memory_total,&vd_performance.memory_used);
+    else if(!strncmp(p,"NET|",4)) sscanf(p+4,"%f|%f",&vd_performance.rx,&vd_performance.tx);
+    else if(!strncmp(p,"DISK|",5)) sscanf(p+5,"%f|%f|%llu|%llu",&vd_performance.read,&vd_performance.write,&vd_performance.disk_total,&vd_performance.disk_free);
+    else if(!strncmp(p,"PROCESSES|",10)) sscanf(p+10,"%d",&vd_performance.count);
+    p=strchr(p,'\n'); if(!p) break; p++;
+  }
+  int n=vd_performance.history_at;
+  for(int c=0;c<4;c++) {
+#ifdef PLAT_VITA
+    vd_performance.history[c][n]=vd_performance.native.cpu_valid ? vd_performance.native.cores[c] : -1;
+#else
+    vd_performance.history[c][n]=-1;
+#endif
+  }
+  vd_performance.history[4][n]=(int)vd_performance.guest_cpu;
+  vd_performance.history[5][n]=vd_performance.memory_total ? vd_performance.memory_used*100/vd_performance.memory_total : -1;
+  vd_performance.history[6][n]=(int)(vd_performance.rx+vd_performance.tx);
+  vd_performance.history_at=(n+1)%60;
+  if(vd_performance.history_count<60) vd_performance.history_count++;
+}
 static void vd_poll_bridge(void) {
   uint64_t now = plat_us();
   if (now - vd.last_poll < 100000)
@@ -716,10 +792,12 @@ static void vd_poll_bridge(void) {
         } else if (!strcmp(w->pending_op, "list") ||
                    !strcmp(w->pending_op, "read") ||
                    !strcmp(w->pending_op, "tasks") ||
+                   !strcmp(w->pending_op, "performance") ||
                    !strcmp(w->pending_op, "search") ||
                    !strcmp(w->pending_op, "job")) {
           snprintf(w->text, sizeof(w->text), "%s", payload);
           vd_notice("Complete");
+          if (!strcmp(w->pending_op, "performance")) vd_performance_parse(payload);
           if (!strcmp(w->pending_op, "read"))
             w->cursor = strlen(w->text);
           if (!strcmp(w->pending_op, "job") && strncmp(payload, "running", 7))
@@ -807,6 +885,9 @@ static void vd_terminal_draw(VDWindow *w, int x, int y, int width, int height) {
     cols = TERM_COLS;
   if (rows > TERM_ROWS)
     rows = TERM_ROWS;
+  /* Copy under the guest lock; rasterization must not block UART output. */
+  static TermState snapshot;
+  plat_mutex_lock(&ui_lock);
   if (t->auto_track) {
     if (t->cx >= t->scroll_x + cols)
       t->scroll_x = t->cx - cols + 1;
@@ -817,6 +898,10 @@ static void vd_terminal_draw(VDWindow *w, int x, int y, int width, int height) {
     t->scroll_x = 0;
   if (t->scroll_y < -t->sb_count)
     t->scroll_y = -t->sb_count;
+  memcpy(&snapshot, t, sizeof(snapshot));
+  t->dirty = false;
+  plat_mutex_unlock(&ui_lock);
+  t = &snapshot;
   for (int r = 0; r < rows; r++)
     for (int c = 0; c < cols; c++) {
       int gx = c + t->scroll_x, gy = r + t->scroll_y;
@@ -854,6 +939,153 @@ static void vd_terminal_draw(VDWindow *w, int x, int y, int width, int height) {
             vd_rect(x + c * cw + xx * z, y + r * ch + yy * z, z, z, fg);
     }
 }
+/* Settings cards share their geometry with hit testing. */
+static void vd_change_scale(int delta) {
+#ifdef PLAT_VITA
+  int value=VD_SCALE+delta;
+  if(value<100)value=100;
+  if(value>200)value=200;
+  vd.ui_scale=value;
+  vd.pan_x=vd.pan_y=0;
+  if(vd.px>=VD_W)vd.px=VD_W-1;
+  if(vd.py>=VD_H)vd.py=VD_H-1;
+  for(int i=0;i<VD_MAX;i++) {
+    VDWindow *w=&vd.windows[i]; if(!w->used)continue;
+    if(w->app==VD_SETTINGS || w->app==VD_TASKS) { w->w=VD_W-24;w->h=VD_H-58;w->x=12;w->y=28; }
+    if(w->w>VD_W)w->w=VD_W;
+    if(w->h>VD_H-24)w->h=VD_H-24;
+    if(w->x+w->w>VD_W)w->x=VD_W-w->w;
+    if(w->y+w->h>VD_H-22)w->y=VD_H-22-w->h;
+  }
+  vd_save_preferences(); vd.dirty=true;
+#else
+  vd_notice("Global scaling is available on Vita; use terminal font controls here");
+#endif
+}
+static void vd_settings_draw(VDWindow *w,int x,int y,int width,int height) {
+  char size[64];snprintf(size,sizeof(size),"Display size: %d%%",VD_SCALE);
+  vd_rect(x,y,width,36,0x243e30);
+  vd_label(x+8,y+7,size,VD_TEXT_COLOR,width-110);
+  vd_label(x+8,y+21,"Text, windows, keyboard & taskbar",VD_ACCENT,width-110);
+  vd_rect(x+width-96,y+4,40,28,0x477647);vd_label(x+width-80,y+14,"-",VD_TEXT_COLOR,16);
+  vd_rect(x+width-48,y+4,40,28,0x477647);vd_label(x+width-32,y+14,"+",VD_TEXT_COLOR,16);
+  const char *names[]={"Desktop layout","Pointer input","Appearance","Terminal font","System update","Save preferences"};
+  char states[6][64];
+  snprintf(states[0],64,"%s",vd.joined?"Joined desktop":"Separate regions");
+  snprintf(states[1],64,"%s",vd.touchpad?"Touchpad":"Direct touch");
+  snprintf(states[2],64,"Green wallpaper %d",vd.wallpaper+1);
+  snprintf(states[3],64,"%s",g_cfg.use_5x7?"Compact":"Normal");
+  snprintf(states[4],64,"GitHub / " VU_VERSION);snprintf(states[5],64,"Saved automatically");
+  int cell=(width-8)/2,row=(height-44)/3;
+  for(int i=0;i<6;i++) {
+    int xx=x+(i%2)*(cell+8),yy=y+44+(i/2)*row;
+    vd_rect(xx,yy,cell,row-5,0x243e30);
+    vd_icon(xx+7,yy+7,i==4?VD_UPDATER:VD_SETTINGS);
+    vd_label(xx+37,yy+7,names[i],VD_TEXT_COLOR,cell-42);
+    vd_label(xx+7,yy+27,states[i],VD_ACCENT,cell-14);
+  }
+}
+static void vd_settings_click(VDWindow *w,int x,int y) {
+  int rx=x-w->x-5,ry=y-w->y-21,width=w->w-10,height=w->h-45;
+  if(ry>=0 && ry<36) {
+    if(rx>=width-96 && rx<width-56)vd_change_scale(-25);
+    else if(rx>=width-48 && rx<width-8)vd_change_scale(25);
+    return;
+  }
+  int row=(height-44)/3,cell=(width-8)/2;
+  if(ry<44 || row<1 || rx<0)return;
+  int col=rx/(cell+8),r=(ry-44)/row;if(col>1 || r>2)return;
+  switch(r*2+col) {
+    case 0:vd.joined=!vd.joined;break;
+    case 1:vd.touchpad=!vd.touchpad;break;
+    case 2:vd.wallpaper=(vd.wallpaper+1)%3;break;
+    case 3:g_cfg.use_5x7=!g_cfg.use_5x7;
+      for(int s=0;s<4;s++)if(vd.sessions[s])vd.sessions[s]->use_5x7=g_cfg.use_5x7;
+      break;
+    case 4:vd_new(VD_UPDATER);break;
+    case 5:vd_notice("Preferences saved");break;
+  }
+  vd_save_preferences();vd.dirty=true;
+}
+static void vd_graph(int x,int y,int width,int height,int series,const char *label,int maximum) {
+  vd_rect(x,y,width,height,0x10241d);
+  vd_label(x+4,y+4,label,VD_ACCENT,width-8);
+  for(int i=1;i<4;i++)vd_rect(x,y+14+(height-15)*i/4,width,1,0x243e30);
+  int count=vd_performance.history_count;
+  int first=(vd_performance.history_at-count+60)%60;
+  for(int i=0;i<count;i++) {
+    int v=vd_performance.history[series][(first+i)%60];if(v<0)continue;
+    if(v>maximum)v=maximum;
+    int xx=x+2+i*(width-4)/60, yy=y+height-2-v*(height-18)/maximum;
+    vd_rect(xx,yy,2,y+height-1-yy,VD_ACCENT);
+  }
+}
+static void vd_tasks_draw(VDWindow *w,int x,int y,int width,int height) {
+  vd_rect(x,y,110,24,w->task_tab?0x243e30:0x477647);
+  vd_label(x+8,y+8,"Processes",VD_TEXT_COLOR,100);
+  vd_rect(x+116,y,122,24,w->task_tab?0x477647:0x243e30);
+  vd_label(x+124,y+8,"Performance",VD_TEXT_COLOR,110);
+  if(!w->task_tab) {
+    vd_label(x,y+32,"PID    CPU %    RAM KiB   Process (Linux)",VD_ACCENT,width);
+    const char *p=w->text;int row=0,drawn=0;
+    while(p && *p && drawn<(height-48)/14) {
+      if(!strncmp(p,"PROC|",5)) {
+        int pid;float cpu;unsigned long rss;char name[80];
+        if(sscanf(p+5,"%d|%f|%lu|%79[^\n]",&pid,&cpu,&rss,name)==4 && row++>=w->scroll) {
+          char line[160],usage[16];
+          if(cpu<0)strcpy(usage," --");else snprintf(usage,16,"%5.1f",cpu);
+          snprintf(line,sizeof(line),"%-6d %s %9lu   %.48s",pid,usage,rss,name);
+          if(drawn%2==0)vd_rect(x,y+48+drawn*14,width,14,0x20372a);
+          vd_label(x,y+51+drawn*14,line,VD_TEXT_COLOR,width);drawn++;
+        }
+      }
+      p=strchr(p,'\n');if(p)p++;
+    }
+    return;
+  }
+  const char *categories[]={"CPU","Memory","GPU","Wi-Fi","Storage"};
+  for(int i=0;i<5;i++) {
+    vd_rect(x,y+32+i*30,96,26,i==w->task_category?0x477647:0x243e30);
+    vd_label(x+8,y+41+i*30,categories[i],VD_TEXT_COLOR,84);
+  }
+  int xx=x+106,yy=y+32,ww=width-106;char info[2048];info[0]=0;
+#ifdef PLAT_VITA
+  plat_performance_t *n=&vd_performance.native;
+  if(w->task_category==0) {
+    int gw=(ww-6)/2,gh=(height-105)/2;if(gh<24)gh=24;
+    for(int i=0;i<4;i++) {
+      char title[48];
+      if(n->cpu_valid)snprintf(title,48,"Core %d: %d%%%s",i,n->cores[i],i==3?" sys":"");
+      else snprintf(title,48,"Core %d: unavailable",i);
+      vd_graph(xx+(i%2)*(gw+6),yy+(i/2)*(gh+4),gw,gh,i,title,100);
+    }
+    yy+=2*(gh+4);
+    snprintf(info,sizeof(info),"Vita ARM Cortex-A9 / %d MHz current\n3 application cores; core 3 system\nGuest: RV32 Linux / 1 virtual CPU\nGuest utilization: %.1f%%\nBase speed: not exposed by API",n->cpu_mhz,vd_performance.guest_cpu);
+  } else if(w->task_category==1) {
+    vd_graph(xx,yy,ww,60,5,"Linux RAM used (%)",100);yy+=68;
+    snprintf(info,sizeof(info),"Linux RAM: %lu / %lu MiB used\nApp heap: %.1f / %.1f MiB\nVita free user pool: %.1f MiB\nVita free CDRAM: %.1f MiB\nMemory type/clock: unavailable",
+      vd_performance.memory_used/1024,vd_performance.memory_total/1024,n->heap_used/1048576.,n->heap_total/1048576.,n->free_user/1048576.,n->free_cdram/1048576.);
+    if(!n->memory_valid)strcat(info,"\nNative free pool query unavailable");
+  } else if(w->task_category==2) {
+    snprintf(info,sizeof(info),"Vita GPU / %d MHz current\nDesktop renderer: CPU software\nGPU utilization: unavailable\nGPU memory usage: unavailable\nNo estimated/fabricated readings",n->gpu_mhz);
+  } else if(w->task_category==3) {
+    vd_graph(xx,yy,ww,60,6,"Guest network (KiB/s)",1024);yy+=68;
+    snprintf(info,sizeof(info),"Vita Wi-Fi: %s\nSignal: %d%% (-1 unavailable)\nGuest RX: %.1f KiB/s\nGuest TX: %.1f KiB/s\nPhysical link speed: unavailable\nTraffic excludes native OS/apps",n->wifi_state==3?"connected":"disconnected / unavailable",n->signal,vd_performance.rx,vd_performance.tx);
+  } else {
+    snprintf(info,sizeof(info),"Vita ux0: %.1f / %.1f GiB free\nLinux disk: %.1f / %.1f MiB free\nGuest read: %.1f KiB/s\nGuest write: %.1f KiB/s\nPhysical device speed: unavailable\nLinux filesystem: ext4",
+      n->storage_free/1073741824.,n->storage_total/1073741824.,vd_performance.disk_free/1048576.,vd_performance.disk_total/1048576.,vd_performance.read,vd_performance.write);
+  }
+#else
+  snprintf(info,sizeof(info),"Linux CPU: %.1f%%\nLinux RAM: %lu / %lu MiB\nRX/TX: %.1f / %.1f KiB/s\nNative metrics unavailable",vd_performance.guest_cpu,vd_performance.memory_used/1024,vd_performance.memory_total/1024,vd_performance.rx,vd_performance.tx);
+#endif
+  const char *p=info;int line=0;
+  while(p && *p && yy+line*14+8<y+height) {
+    char b[180];size_t len=strcspn(p,"\n");if(len>=sizeof(b))len=sizeof(b)-1;
+    memcpy(b,p,len);b[len]=0;vd_label(xx,yy+line*14,b,VD_TEXT_COLOR,ww);line++;
+    p=strchr(p,'\n');if(p)p++;
+  }
+}
+
 static void vd_render_window(int i) {
   VDWindow *w = &vd.windows[i];
   if (!w->used || w->minimized || w->workspace != vd.workspace)
@@ -868,16 +1100,9 @@ static void vd_render_window(int i) {
   if (w->terminal)
     vd_terminal_draw(w, x, y, width, height);
   else if (w->app == VD_SETTINGS) {
-    char info[512];
-    snprintf(info, sizeof(info),
-             "%s\nJoined desktop: %s\nTouchpad: %s\nWallpaper: %d\nFont: "
-             "%s\nGuest RAM: %lu "
-             "MB\nSave preserves settings across launches.",
-             plat_model(), vd.joined ? "on" : "off", vd.touchpad ? "on" : "off",
-             vd.wallpaper, g_cfg.use_5x7 ? "compact" : "normal",
-             (unsigned long)(ram_amt / (1024 * 1024)));
-    snprintf(w->text, sizeof(w->text), "%s", info);
-    vd_lines(w, x, y, width, height);
+    vd_settings_draw(w,x,y,width,height);
+  } else if (w->app == VD_TASKS) {
+    vd_tasks_draw(w,x,y,width,height);
   } else if (w->image) {
     int dw = width, dh = w->image_h * width / w->image_w;
     if (dh > height) {
@@ -907,13 +1132,6 @@ static void vd_render_window(int i) {
     vd_button(x, by, 44, "Save");
     vd_button(x + 48, by, 44, "Path");
     vd_label(x + 98, by + 4, w->path, VD_ACCENT, width - 98);
-  } else if (w->app == VD_SETTINGS) {
-    vd_button(x, by, 46, "Join");
-    vd_button(x + 50, by, 46, "Pad");
-    vd_button(x + 100, by, 46, "Wall");
-    vd_button(x + 150, by, 46, "Font");
-    vd_button(x + 200, by, 46, "Save");
-    vd_button(x + 250, by, 46, "Upd");
   } else if (w->app == VD_TASKS)
     vd_button(x, by, 70, "Refresh");
   else if (w->app == VD_SSH) {
@@ -963,23 +1181,63 @@ static void vd_render_window(int i) {
     vd_button(x + 176, by, 36, "Key");
   }
 }
+static struct {
+  uint8_t *address[70];
+  uint8_t bytes[70][4];
+  uint8_t size[70];
+  int count;
+} vd_cursor_saved;
+static void vd_cursor_restore(void) {
+  for (int i = 0; i < vd_cursor_saved.count; i++)
+    memcpy(vd_cursor_saved.address[i], vd_cursor_saved.bytes[i], vd_cursor_saved.size[i]);
+}
+static void vd_cursor_draw(void) {
+  vd_cursor_saved.count = 0;
+  for (int yy = 0; yy < 10; yy++) for (int xx = 0; xx < 7; xx++) {
+    int x = vd.px + xx - vd.pan_x, y = vd.py + yy - vd.pan_y;
+    int s = y >= VD_TERM_H;
+    if (s) { x -= VD_PANEL_X; y -= VD_TERM_H; }
+    plat_fb_t *fb = &vd.fb[s];
+    if (!fb->base || x < 0 || y < 0 || x >= fb->w || y >= fb->h) continue;
+    int i = vd_cursor_saved.count++;
+    vd_cursor_saved.address[i] = fb->base + (ptrdiff_t)y * fb->y_stride + (ptrdiff_t)x * fb->x_stride;
+    vd_cursor_saved.size[i] = fb->bpp;
+    memcpy(vd_cursor_saved.bytes[i], vd_cursor_saved.address[i], fb->bpp);
+  }
+  vd_rect(vd.px, vd.py, 2, 10, 0xffffff);
+  vd_rect(vd.px, vd.py, 7, 2, 0xffffff);
+}
 static void vd_render(void) {
   if (!vd.active)
     return;
   uint64_t now = plat_us();
-  if (!vd.dirty && now - vd.last_clock < 500000)
+  if (!vd.dirty && !vd.pointer_dirty && now - vd.last_clock < 500000)
     return;
   if (now - vd.last_render < g_top_refresh_us)
     return;
   vd.last_render = now;
-  vd.last_clock = now;
   plat_surface(PLAT_SURF_TERM, &vd.fb[0]);
   plat_surface(PLAT_SURF_PANEL, &vd.fb[1]);
-  for (int y = 0; y < VD_H; y++) {
+#ifdef PLAT_VITA
+  plat_desktop_scale(VD_SCALE);
+  vd.fb[0].w = VD_TERM_W; vd.fb[0].h = VD_TERM_H;
+  vd.fb[1].w = VD_PANEL_W; vd.fb[1].h = VD_PANEL_H;
+#endif
+#ifdef PLAT_VITA
+  if (!vd.dirty && vd.pointer_dirty && now - vd.last_clock < 500000) {
+    vd_cursor_restore();
+    vd_cursor_draw();
+    plat_present(PLAT_SURF_BIT(PLAT_SURF_TERM) | PLAT_SURF_BIT(PLAT_SURF_PANEL));
+    vd.pointer_dirty = false;
+    return;
+  }
+#endif
+  vd.last_clock = now;
+  {
     uint32_t c = vd.wallpaper == 1   ? 0x102219
                  : vd.wallpaper == 2 ? 0x112b25
                                      : 0x12271e;
-    vd_rect(vd.pan_x, y + vd.pan_y, VD_W, 1, c);
+    vd_rect(vd.pan_x, vd.pan_y, VD_W, VD_H, c);
   }
   /* Code-native wallpaper and icons, cheap enough for every supported model. */
   for (int k = 0; k < 6; k++) {
@@ -993,15 +1251,15 @@ static void vd_render(void) {
     vd_label(41, 44 + a * 38, vd_names[a], VD_TEXT_COLOR, 120);
   }
   plat_mutex_lock(&ui_lock);
+  term_state.dirty = false;
+  plat_mutex_unlock(&ui_lock);
   for (int i = 0; i < VD_MAX; i++)
     if (i != vd.focused)
       vd_render_window(i);
   if (vd.focused >= 0)
     vd_render_window(vd.focused);
-  term_state.dirty = false;
-  plat_mutex_unlock(&ui_lock);
   int bar = VD_H - 22;
-  vd_rect(VD_PANEL_X, bar, PLAT_PANEL_W, 22, 0x0c1711);
+  vd_rect(VD_PANEL_X, bar, VD_PANEL_W, 22, 0x0c1711);
   vd_button(VD_PANEL_X + 2, bar + 3, 46, "Menu");
   int tx = VD_PANEL_X + 52;
   for (int i = 0; i < VD_MAX; i++)
@@ -1009,7 +1267,7 @@ static void vd_render(void) {
       vd_rect(tx, bar + 3, 22, 15, i == vd.focused ? 0x477647 : 0x24392b);
       vd_char(tx + 7, bar + 6, vd.windows[i].title[0], VD_TEXT_COLOR, 1);
       tx += 25;
-      if (tx > VD_PANEL_X + PLAT_PANEL_W - 96)
+      if (tx > VD_PANEL_X + VD_PANEL_W - 96)
         break;
     }
   time_t t = (time_t)(plat_wallclock_ms() / 1000);
@@ -1019,7 +1277,7 @@ static void vd_render(void) {
     snprintf(clock, sizeof(clock), "%02d:%02d", tm->tm_hour, tm->tm_min);
   else
     strcpy(clock, "--:--");
-  vd_label(VD_PANEL_X + PLAT_PANEL_W - 44, bar + 7, clock, VD_ACCENT, 44);
+  vd_label(VD_PANEL_X + VD_PANEL_W - 44, bar + 7, clock, VD_ACCENT, 44);
   if (vd.menu) {
     int x = VD_PANEL_X + 2, y = VD_H - 22 - VD_APP_COUNT * 16;
     vd_rect(x, y, 164, VD_APP_COUNT * 16, 0x1c3528);
@@ -1027,24 +1285,24 @@ static void vd_render(void) {
       vd_label(x + 6, y + a * 16 + 4, vd_names[a], VD_TEXT_COLOR, 152);
   }
   if (vd.keyboard) {
-    vd_rect(VD_PANEL_X, PLAT_TERM_H, PLAT_PANEL_W, PLAT_PANEL_H, VD_SURFACE);
+    vd_rect(VD_PANEL_X, VD_TERM_H, VD_PANEL_W, VD_PANEL_H, VD_SURFACE);
     const char *normal[] = {"1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"};
     const char *symbols[] = {"!@#$%^&*()", "-_=+[]{}\\|", ";:'\"`,.<>?", "/~"};
     const char **rows = vd.symbols ? symbols : normal;
-    int kh = (PLAT_PANEL_H - 70) / 4, kw = PLAT_PANEL_W / 10;
+    int kh = (VD_PANEL_H - 70) / 4, kw = VD_PANEL_W / 10;
     for (int r = 0; r < 4; r++)
       for (int c = 0; rows[r][c]; c++) {
-        int x = VD_PANEL_X + c * kw, y = PLAT_TERM_H + 22 + r * kh;
+        int x = VD_PANEL_X + c * kw, y = VD_TERM_H + 22 + r * kh;
         vd_rect(x + 1, y + 1, kw - 2, kh - 2, 0x294634);
         vd_char(x + kw / 2 - 4, y + kh / 2 - 4,
                 vd.shift ? toupper(rows[r][c]) : rows[r][c], VD_TEXT_COLOR, 1);
       }
-    vd_label(VD_PANEL_X + 4, PLAT_TERM_H + 6,
+    vd_label(VD_PANEL_X + 4, VD_TERM_H + 6,
              vd.symbols ? "ABC  |  " PLAT_BACK_LABEL ": hide" : "SYM  |  " PLAT_BACK_LABEL ": hide", VD_ACCENT,
-             PLAT_PANEL_W - 8);
+             VD_PANEL_W - 8);
     const char *keys[] = {"CTL", "ALT", "SHF", "TAB",
                           "ESC", "DEL", "ENT", "SPC"};
-    int bw = PLAT_PANEL_W / 8;
+    int bw = VD_PANEL_W / 8;
     for (int c = 0; c < 8; c++)
       vd_button(VD_PANEL_X + c * bw, VD_H - 44, bw - 1, keys[c]);
     const char *nav[] = {"<", "v", "^", ">", "Home", "End", "PgUp", "PgDn"};
@@ -1052,11 +1310,11 @@ static void vd_render(void) {
       vd_button(VD_PANEL_X + c * bw, VD_H - 23, bw - 1, nav[c]);
   }
   if (vd.notice[0] && !vd.keyboard)
-    vd_label(VD_PANEL_X + 4, VD_H - 33, vd.notice, VD_ACCENT, PLAT_PANEL_W - 8);
-  vd_rect(vd.px, vd.py, 2, 10, 0xffffff);
-  vd_rect(vd.px, vd.py, 7, 2, 0xffffff);
+    vd_label(VD_PANEL_X + 4, VD_H - 33, vd.notice, VD_ACCENT, VD_PANEL_W - 8);
+  vd_cursor_draw();
   plat_present(PLAT_SURF_BIT(PLAT_SURF_TERM) | PLAT_SURF_BIT(PLAT_SURF_PANEL));
   vd.dirty = false;
+  vd.pointer_dirty = false;
 }
 static void vd_selected_path(VDWindow *w, char *out, size_t n) {
   const char *s = w->text;
@@ -1354,7 +1612,7 @@ static void vd_action(VDWindow *w, int button) {
       vd_request(w, "sysupdate", button == 0 ? "check" : "stage", PLAT_SLUG,
                  VU_VERSION, NULL);
   } else if (w->app == VD_TASKS)
-    vd_request(w, "tasks", NULL, NULL, NULL, NULL);
+    vd_request(w, "performance", NULL, NULL, NULL, NULL);
   else if (w->app == VD_MEDIA)
     vd_media_action(w, button);
   else if (w->app == VD_REMOTE) {
@@ -1461,8 +1719,8 @@ static void vd_action(VDWindow *w, int button) {
   vd.dirty = true;
 }
 static void vd_keyboard_click(int x, int y) {
-  int xx = x - VD_PANEL_X, yy = y - PLAT_TERM_H, kh = (PLAT_PANEL_H - 70) / 4,
-      kw = PLAT_PANEL_W / 10;
+  int xx = x - VD_PANEL_X, yy = y - VD_TERM_H, kh = (VD_PANEL_H - 70) / 4,
+      kw = VD_PANEL_W / 10;
   if (yy < 22) {
     vd.symbols = !vd.symbols;
     vd.dirty = true;
@@ -1489,7 +1747,7 @@ static void vd_keyboard_click(int x, int y) {
       vd.shift = false;
     }
   } else {
-    int k = xx / (PLAT_PANEL_W / 8);
+    int k = xx / (VD_PANEL_W / 8);
     if (k < 0 || k > 7)
       return;
     if (y < VD_H - 24) {
@@ -1509,7 +1767,7 @@ static void vd_keyboard_click(int x, int y) {
   vd.dirty = true;
 }
 static void vd_click(int x, int y) {
-  if (vd.keyboard && y >= PLAT_TERM_H) {
+  if (vd.keyboard && y >= VD_TERM_H) {
     vd_keyboard_click(x, y);
     return;
   }
@@ -1584,11 +1842,11 @@ static void vd_click(int x, int y) {
         w->oy = w->y;
         w->ow = w->w;
         w->oh = w->h;
-        bool lower = w->y >= PLAT_TERM_H;
+        bool lower = w->y >= VD_TERM_H;
         w->x = lower ? VD_PANEL_X : 0;
-        w->y = lower ? PLAT_TERM_H : 0;
-        w->w = lower ? PLAT_PANEL_W : PLAT_TERM_W;
-        w->h = PLAT_TERM_H - 22;
+        w->y = lower ? VD_TERM_H : 0;
+        w->w = lower ? VD_PANEL_W : VD_TERM_W;
+        w->h = VD_TERM_H - 22;
       } else {
         w->x = w->ox;
         w->y = w->oy;
@@ -1606,6 +1864,14 @@ static void vd_click(int x, int y) {
       vd.drag_dx = x - w->x;
       vd.drag_dy = y - w->y;
     }
+  } else if (w->app == VD_SETTINGS) {
+    vd_settings_click(w,x,y);
+  } else if (w->app == VD_TASKS && y < w->y+w->h-19) {
+    int rx=x-w->x-5, ry=y-w->y-21;
+    if(ry<26) { w->task_tab=rx>=116; w->scroll=0; }
+    else if(w->task_tab && rx<100 && ry>=32) w->task_category=(ry-32)/30;
+    if(w->task_category>4) w->task_category=4;
+    vd.dirty=true;
   } else if (y >= w->y + w->h - (w->app == VD_FILES ? 37 : 19)) {
     int rel = x - w->x - 5;
     int b = 0;
@@ -1686,6 +1952,11 @@ static void vd_init(void) {
   vd.focused = vd.drag = -1;
   vd.select_start = vd.select_end = -1;
   vd.joined = true;
+#ifdef PLAT_VITA
+  vd.ui_scale = 150;
+#else
+  vd.ui_scale = 100;
+#endif
   vd.px = 100;
   vd.py = 80;
   mkdir(PLAT_SD "verdant", 0777);
@@ -1721,6 +1992,7 @@ static void vd_init(void) {
     closedir(dir);
   }
   remove(VD_BRIDGE "ready");
+  remove(VD_BRIDGE "host-http.enabled");
   /* Reserve terminals before the guest consumes the remaining heap. */
   for (int s = 0; s < 4; s++) {
     vd.sessions[s] = calloc(1, sizeof(TermState));
@@ -1732,7 +2004,9 @@ static void vd_init(void) {
     char line[1024];
     while (fgets(line, sizeof(line), f)) {
       int v;
-      if (sscanf(line, "joined=%d", &v) == 1)
+      if (sscanf(line, "ui_scale=%d", &v) == 1)
+        vd.ui_scale = v >= 100 && v <= 200 && v % 25 == 0 ? v : 150;
+      else if (sscanf(line, "joined=%d", &v) == 1)
         vd.joined = v != 0;
       else if (sscanf(line, "touchpad=%d", &v) == 1)
         vd.touchpad = v != 0;
@@ -1761,7 +2035,7 @@ static void vd_init(void) {
   w->app = VD_TERM;
   w->terminal = &term_state;
   w->session = -1;
-  w->w = VD_W > 500 ? 650 : 370;
+  w->w = VD_W - 24;
   w->h = 210;
   w->x = 12;
   w->y = 24;
@@ -1787,10 +2061,13 @@ static void vd_update(const plat_input_t *in) {
     if (ready) {
       fclose(ready);
       vd.update_checked = true;
+#ifdef PLAT_VITA
+      plat_http_start();
+#endif
       FILE *prefs = fopen(PLAT_SD "verdant/update-auto.cfg", "rb");
       int enabled = 0;
       if (prefs) {
-        fscanf(prefs, "%d", &enabled);
+        if(fscanf(prefs, "%d", &enabled)!=1) enabled=0;
         fclose(prefs);
       }
       vd.auto_update = enabled == 1;
@@ -1802,6 +2079,17 @@ static void vd_update(const plat_input_t *in) {
                    vd.auto_update ? "stage" : "check", PLAT_SLUG, VU_VERSION,
                    NULL);
       }
+    }
+  }
+  for(int i=0;i<VD_MAX;i++) {
+    VDWindow *task=&vd.windows[i];
+    if(task->used && task->app==VD_TASKS && !task->minimized && task->workspace==vd.workspace
+        && plat_us()-task->performance_tick>2000000 && !task->pending) {
+      task->performance_tick=plat_us();
+#ifdef PLAT_VITA
+      plat_performance(&vd_performance.native);
+#endif
+      vd_request(task,"performance",NULL,NULL,NULL,NULL);
     }
   }
   vd_media_tick();
@@ -1876,6 +2164,7 @@ static void vd_update(const plat_input_t *in) {
           vd.windows[i].x -= in->pan_x / 24;
           vd.windows[i].y += in->pan_y / 24;
         }
+      vd.dirty = true;
     } else {
       vd.px += vd_pointer_step(in->pan_x, pointer_elapsed, &vd.pointer_fraction_x);
       vd.py += vd_pointer_step(-in->pan_y, pointer_elapsed, &vd.pointer_fraction_y);
@@ -1888,11 +2177,17 @@ static void vd_update(const plat_input_t *in) {
       vd.py = 0;
     if (vd.py >= VD_H)
       vd.py = VD_H - 1;
-    vd.dirty = true;
+    vd.pointer_dirty = true;
   } else {
     vd.pointer_fraction_x = vd.pointer_fraction_y = 0;
   }
-  int x = in->ptr_x + VD_PANEL_X, y = in->ptr_y + PLAT_TERM_H;
+  int x = in->ptr_x + VD_PANEL_X, y = in->ptr_y + VD_TERM_H;
+#ifdef PLAT_VITA
+  x = in->ptr_x * VD_TERM_W / PLAT_TERM_W;
+  int physical_y = in->ptr_y + PLAT_TERM_H;
+  y = physical_y < PLAT_TERM_H ? physical_y * VD_TERM_H / PLAT_TERM_H
+      : VD_TERM_H + (physical_y - PLAT_TERM_H) * VD_PANEL_H / PLAT_PANEL_H;
+#endif
   if (in->ptr_down) {
     if (vd.touchpad && !vd.keyboard) {
       static int lx, ly;
@@ -1908,7 +2203,7 @@ static void vd_update(const plat_input_t *in) {
       vd.px = x;
       vd.py = y;
     }
-    vd.dirty = true;
+    vd.pointer_dirty = true;
   }
   if (in->ptr_tapped)
     vd_click(x, y);
@@ -1931,8 +2226,8 @@ static void vd_update(const plat_input_t *in) {
       d->x = vd.px - vd.drag_dx;
       d->y = vd.py - vd.drag_dy;
       if (!vd.joined) {
-        int lo = d->y < PLAT_TERM_H ? 0 : PLAT_TERM_H,
-            hi = lo + PLAT_TERM_H - d->h;
+        int lo = d->y < VD_TERM_H ? 0 : VD_TERM_H,
+            hi = lo + VD_TERM_H - d->h;
         if (d->y > hi)
           d->y = hi;
       }
@@ -2003,6 +2298,9 @@ static void vd_update(const plat_input_t *in) {
   vd_render();
 }
 static void vd_shutdown(void) {
+#ifdef PLAT_VITA
+  plat_http_stop();
+#endif
   vd_stop_media();
   vd_save_preferences();
   for (int s = 0; s < 4; s++)

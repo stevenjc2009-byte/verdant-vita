@@ -32,3 +32,7 @@ The first 0.1 builds have only the offline updater. Install 0.2.0 once using FBI
 ## Tests and limits
 
 Automated tests cover platform/hash rejection, HTTPS host restrictions, archive traversal, release staging, native interrupted-rename recovery and preservation of user data. Console Wi-Fi, slow guest HTTPS, title installation and power-loss behavior on physical SD cards remain unverified. A repository with no newer published release correctly offers no update; an updater does not create new versions by itself.
+
+## Vita 0.3.0
+
+Verified HTTPS is performed by a native worker on application core 1, with 20-second connection, 30-second stalled-transfer and bounded job timeouts. Progress/errors appear in the updater. The guest retains GitHub SHA-256, archive and platform validation. Each redirect is restricted to GitHub release hosts; TLS certificate and hostname checks stay enabled. Existing 0.2.6 updaters can stage the same ZIP format, then apply it on relaunch. An old already-running updater cannot receive the new transport until updated; if it stays stuck, install the full release VPK once in VitaShell.

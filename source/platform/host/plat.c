@@ -112,3 +112,30 @@ int plat_hw_camera(bool inner, uint8_t **frame) {
 int plat_hw_mic_read(uint8_t *out, int n) { return 0; }
 int plat_hw_audio_write(const uint8_t *data, int n) { return 0; }
 int plat_update_title(const char *package) { return 0; }
+
+#ifdef PLAT_VITA
+void plat_desktop_scale(int percent) {}
+/* Exercise the same native HTTPS worker in integration tests. */
+#include <stdatomic.h>
+typedef int SceUID;
+typedef unsigned SceSize;
+#define SCE_KERNEL_CPU_MASK_USER_1 0x20000
+static pthread_t http_thread;
+static int (*http_entry)(SceSize,void*);
+static void *http_run(void *arg) { http_entry(0,NULL);return NULL; }
+static int sceKernelCreateThread(const char *name,int (*entry)(SceSize,void*),int priority,int size,int attr,int mask,void *option) { http_entry=entry;return 1; }
+static int sceKernelStartThread(int id,int size,void *arg) { return pthread_create(&http_thread,NULL,http_run,NULL); }
+static int sceKernelWaitThreadEnd(int id,void *status,void *timeout) { return pthread_join(http_thread,NULL); }
+static int sceKernelDeleteThread(int id) { return 0; }
+static void sceKernelDelayThread(int delay) { usleep(delay); }
+#define plat_http_start test_http_start
+#include "../vita/native_http.h"
+#undef plat_http_start
+void plat_http_start(void) { if(!getenv("VERDANT_DISABLE_NATIVE_HTTP"))test_http_start(); }
+
+void plat_performance(plat_performance_t *out) {
+  memset(out,0,sizeof(*out));
+  for(int i=0;i<4;i++) out->cores[i]=-1;
+  out->wifi_state=out->signal=-1;
+}
+#endif

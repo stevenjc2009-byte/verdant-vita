@@ -1,4 +1,4 @@
-# Validation — experimental 0.2.6
+# Validation — experimental 0.3.0
 
 - devkitARM ARMv6: 3DSX/CIA generated; check3dsx relocation validation passes.
 - VitaSDK channel 2026.08: native ARM executable, SELF and VPK generated, including camera/mic/audio adapters and original LiveArea assets. Compilation does not establish physical operation.
@@ -25,3 +25,13 @@ The user's 0.2.3 boot.log confirms successful entry into main and framebuffer al
 Version 0.2.5 responds to the user's confirmed desktop boot and reported redraw flashes/slow analog pointer. The Vita renderer uses a persistent cached drawing buffer plus two CDRAM scanout buffers, copying only completed frames and switching at vertical blank. Pointer tests verify equal distance at different polling rates, fractional slow movement, neutral reset and capped movement after stalls. Physical flicker/performance still requires confirmation. The bundled /etc/shadow was inspected: local root has an empty password.
 
 Version 0.2.6 audits the Vita profile: Linux storage/hardware mounts, file-manager defaults and shortcuts, backup path, storage indicators, keyboard/control help, sensor name/vendor, native thread names, model/storage APIs, supported settings/RAM and pinned Vita update channel. Sanitized desktop tests pass with Vita defaults. The actual RV32 guest passes canonical Vita bind mounts, file I/O, backward-compatible aliases, runtime image guards and shell environment checks on disposable storage. This confirms guest integration, not physical media hardware or Vita filesystem permissions.
+
+Version 0.3.0 passes sanitized pixel-equivalence tests for clipped/panned 24-bit and 32-bit surfaces (including alpha preservation), cursor-background restoration without trails, desktop behavior and time-based pointer movement. The actual production display worker is tested with host semaphore/thread bindings: immutable scanout during the next draw, queue backpressure, requested core affinity, shutdown with a flip in flight, restart, partial semaphore failure, thread-create/start failure and synchronous fallback all pass. In the sanitized host fill benchmark, 80 full-screen scalar fills took 509452 us versus 79121 us for the bulk routine (~6.4x faster for that primitive). These are host timings, not Vita FPS or an end-to-end performance promise. The VitaSDK binary compiles with UI core 0/display core 1/guest core 2 assignment; boot.log records affinity/worker initialization results. Physical scheduling and drag/cursor smoothness need console confirmation.
+
+## Vita 0.3.0 UI and updater
+
+Sanitized native desktop tests cover scale limits, saved 150% default geometry, graphical Settings hit testing, all five Performance pages, process rendering and parser/history state. Pixel output previews at 150% were inspected. The production frame transfer also passes a 200% nearest-neighbour mapping test across the two logical regions. The Linux metrics collector passes live /proc tests, with first-sample rates explicitly unknown.
+
+The real RV32 Linux guest reached the live GitHub releases API through the same production native HTTPS implementation bound to host threads/curl. It reported connection progress and completed the check. The guest fallback transport also completed a live channel check. Host tests do not verify the Vita network stack, hardware query permissions, physical touch accuracy or console frame rate. GPU utilization and memory clocks/types remain unavailable rather than estimated.
+
+The exact 0.2.6 guest agent/updater also completed a check against the live Vita release channel through the interpreted guest NAT. It remained silent while running and printed its result on exit, consistent with the reported UI. This confirms protocol/connectivity on the host test fixture, not on the user's Vita Wi-Fi.

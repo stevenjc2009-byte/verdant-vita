@@ -1,8 +1,8 @@
 """Stage and apply the actual release ZIPs on disposable host storage."""
-import importlib.util,json,subprocess,sys,tempfile,zipfile
+import os,importlib.util,json,subprocess,sys,tempfile,zipfile
 from pathlib import Path
 project=Path(__file__).resolve().parents[1]
-spec=importlib.util.spec_from_file_location('updater',project/'guest/verdant-updater.py')
+spec=importlib.util.spec_from_file_location('updater',Path(os.environ.get('VERDANT_UPDATER_SOURCE',str(project/'guest/verdant-updater.py'))))
 u=importlib.util.module_from_spec(spec);spec.loader.exec_module(u)
 for platform,binary in zip(('3ds','vita'),sys.argv[1:3]):
     executable=Path(binary).resolve()

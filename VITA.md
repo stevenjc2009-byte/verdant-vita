@@ -1,4 +1,6 @@
-# Verdant Desktop for PS Vita — experimental 0.2.6
+# Verdant Desktop for PS Vita — experimental 0.3.0
+
+Version 0.3.0 optimizes interactive rendering: pointer-only movement restores/redraws a 7x10 cursor area, rectangle fills clip once per surface and write bulk rows, and terminal rendering uses a brief locked snapshot. The UI polls every 2 ms between frames. Work is split across core 0 (UI/input), core 1 (frame transfer/display and media) and core 2 (the single-vCPU Linux interpreter). Frame ownership is synchronized, the display queue cannot accumulate old frames, and worker-creation failure falls back to synchronous presentation. A fourth Vita core is system-reserved. This does not turn the guest into SMP Linux. Physical drag smoothness remains to be measured.
 
 Version 0.2.6 adds a Vita-specific profile: real Linux bind mounts at **/mnt/vita/ux0** and **/mnt/vita/hw**, ux0: file-manager/storage labels, Vita keyboard and Cross/Circle/left-stick help, PS Vita sensor identification, Vita RAM choices through 96 MB, and hidden Nintendo NAND/TWL settings. Backups and updater workers use the Vita runtime path. Saved 3DS-named bookmarks are migrated. Existing root disks, preferences and shell history are preserved.
 

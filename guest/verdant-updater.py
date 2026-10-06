@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Verified GitHub release staging. Active guest disk/programs are never replaced here."""
-import hashlib,json,os,re,ssl,sys,time,urllib.request,zipfile
+import os,re,sys,time
 from pathlib import Path,PurePosixPath
 
-VERSION='0.2.6'
+VERSION='0.3.0'
 REPOS={'3ds':'stevenjc2009-byte/verdant-3ds','vita':'stevenjc2009-byte/verdant-vita'}
 LIMIT=160*1024*1024
 RUNTIME=Path(os.environ.get('VERDANT_RUNTIME',str(Path(__file__).resolve().parent.parent)))
@@ -19,22 +19,48 @@ def version(v):
     return tuple(map(int,m.groups()))
 
 def safe_url(url):
-    from urllib.parse import urlparse
-    p=urlparse(url)
-    if p.scheme!='https' or p.username or p.password or p.port not in (None,443):raise ValueError('HTTPS release URL required')
-    if p.hostname not in {'api.github.com','github.com','release-assets.githubusercontent.com','objects.githubusercontent.com'}:raise ValueError('Unexpected release host')
+    # Exact authorities only: no credentials, custom ports or ambiguous hosts.
+    if not re.fullmatch(r'https://(api.github.com|github.com|release-assets.githubusercontent.com|objects.githubusercontent.com)/[^\x00-\x20]*',url):
+        raise ValueError('Unexpected HTTPS release host')
     return url
 
-class GithubRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self,req,fp,code,msg,headers,newurl):
-        safe_url(newurl)
-        return super().redirect_request(req,fp,code,msg,headers,newurl)
-
 def opener():
+    import ssl,urllib.request
+    class GithubRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self,req,fp,code,msg,headers,newurl):
+            safe_url(newurl)
+            return super().redirect_request(req,fp,code,msg,headers,newurl)
     context=ssl.create_default_context(cafile=str(RUNTIME/'guest'/'github-ca.pem'))
     return urllib.request.build_opener(GithubRedirect(),urllib.request.HTTPSHandler(context=context))
 
+def native_fetch(url,target=None,limit=1024*1024):
+    bridge=RUNTIME/'bridge';base=bridge/'host-http'
+    def path(ext):return base.with_name(base.name+ext)
+    for ext in ('.res','.cancel','.progress','.data'):path(ext).unlink(missing_ok=True)
+    atom(path('.req'),safe_url(url)+'\n')
+    print('Connecting to GitHub using Vita HTTPS...',flush=True)
+    started=time.monotonic();last=''
+    while not path('.res').exists():
+        if time.monotonic()-started>650:
+            path('.cancel').write_text('1')
+            raise TimeoutError('Native HTTPS timed out. Check Vita Wi-Fi and date/time.')
+        try:progress=path('.progress').read_text()
+        except FileNotFoundError:progress=''
+        if progress and progress!=last:print(progress,flush=True);last=progress
+        time.sleep(.2)
+    response=path('.res').read_text()
+    if not response.startswith('OK\n'):raise RuntimeError(response.removeprefix('ERROR\n'))
+    if path('.data').stat().st_size>limit:raise ValueError('Release exceeds size limit')
+    if target:
+        with path('.data').open('rb') as source:
+            while block:=source.read(65536):target.write(block)
+        result=b''
+    else:result=path('.data').read_bytes()
+    path('.data').unlink();path('.res').unlink()
+    return result
+
 def fetch_once(client,url,target=None,limit=1024*1024):
+    import urllib.request
     request=urllib.request.Request(safe_url(url),headers={'User-Agent':'Verdant-Updater/'+VERSION,'Accept':'application/vnd.github+json'})
     with client.open(request,timeout=45) as response:
         safe_url(response.url)
@@ -51,7 +77,8 @@ def fetch_once(client,url,target=None,limit=1024*1024):
         return bytes(data)
 
 def fetch(client,url,target=None,limit=1024*1024):
-    import urllib.error
+    if (RUNTIME/'bridge/host-http.enabled').exists():return native_fetch(url,target,limit)
+    import ssl,urllib.error
     for attempt in range(3):
         try:
             if target:target.seek(0);target.truncate()
@@ -70,12 +97,14 @@ def allowed(name,platform):
     return name=='verdant/Image' or name in binaries[platform] or bool(re.fullmatch(r'verdant/guest/[A-Za-z0-9_.-]+\.(py|txt|pem)',name))
 
 def hash_file(path):
+    import hashlib
     h=hashlib.sha256()
     with path.open('rb') as f:
         while block:=f.read(32768):h.update(block)
     return h.hexdigest()
 
 def stage(package,platform,tag,asset_digest=None):
+    import hashlib,json,zipfile
     if asset_digest and hash_file(package)!=asset_digest:raise ValueError('GitHub asset SHA-256 mismatch')
     pending=RUNTIME/'update-pending'
     if pending.exists():
@@ -123,7 +152,10 @@ def stage(package,platform,tag,asset_digest=None):
 def main():
     action,platform,current=sys.argv[1:4]
     if platform not in REPOS:raise ValueError('Unsupported console')
-    version(current);client=opener()
+    version(current)
+    print('Checking GitHub releases for '+platform+' (current '+current+')...',flush=True)
+    import json
+    client=None if (RUNTIME/'bridge/host-http.enabled').exists() else opener()
     release=json.loads(fetch(client,'https://api.github.com/repos/'+REPOS[platform]+'/releases/latest'))
     tag=release['tag_name']
     if release.get('prerelease') or release.get('draft'):raise ValueError('Unstable release rejected')

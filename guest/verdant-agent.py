@@ -88,7 +88,7 @@ def dispatch(op, a, rid):
         script=BASE.parent/'guest'/'verdant-updater.py'
         if not script.is_file():raise ValueError('Updater is absent from SD; install the complete release')
         if any(j.get('updater') and j['process'].poll() is None for j in jobs.values()):raise ValueError('An updater is already running')
-        result=launch_job(rid,[sys.executable,str(script),action,platform,current]);jobs[rid]['updater']=True;return result
+        result=launch_job(rid,[sys.executable,'-u',str(script),action,platform,current]);jobs[rid]['updater']=True;jobs[rid]['started']=time.monotonic();jobs[rid]['timeout']=900 if action=='stage' else 90;return result
     if op == 'shutdown':
         for sid in list(sessions):stop_session(sid)
         subprocess.run(['sync'],check=True)
@@ -153,6 +153,9 @@ def dispatch(op, a, rid):
                     path=Path(directory)/name;result.append(('D ' if path.is_dir() else 'F ')+str(path))
                 if len(result) >= 128: return '\n'.join(result)
         return '\n'.join(result) or 'No matches'
+    if op == 'performance':
+        import importlib
+        return importlib.import_module('verdant-performance').sample()
     if op == 'tasks':
         result = subprocess.run(['ps', '-eo', 'pid,comm,rss'], capture_output=True, text=True)
         return Path('/proc/meminfo').read_text().split('\n')[0] + '\n' + result.stdout[:15000]
@@ -178,6 +181,7 @@ def dispatch(op, a, rid):
             tail = f.read().decode(errors='replace')
         return status + '\n' + tail
     if op == 'cancel':
+        if jobs.get(a[0],{}).get('updater'):(BASE/'host-http.cancel').write_text('1')
         job = jobs.get(a[0])
         if job and job['process'].poll() is None:
             os.killpg(job['process'].pid, signal.SIGTERM)
@@ -251,6 +255,10 @@ def tick():
         except BlockingIOError: pass
         except OSError: stop_session(key.data)
     for job in jobs.values():
+        if job.get('updater') and job['process'].poll() is None and time.monotonic()-job['started']>job['timeout']:
+            os.killpg(job['process'].pid,signal.SIGTERM)
+            job['out'].write(b'\nUpdate timed out. Check Vita Wi-Fi and system date/time.\n');job['out'].flush()
+            (BASE/'host-http.cancel').write_text('1')
         if job['process'].poll() is not None and not job['out'].closed:
             job['out'].close()
             if 'target' in job and job['process'].returncode==0:

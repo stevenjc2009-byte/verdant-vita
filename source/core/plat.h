@@ -452,4 +452,15 @@ int plat_hw_audio_write(const uint8_t *data, int len);
  * installed, negative = failed. Only the Verdant title is permitted. */
 int plat_update_title(const char *package);
 
+#ifdef PLAT_VITA
+void plat_desktop_scale(int percent);
+void plat_http_start(void);
+void plat_http_stop(void);
+typedef struct {
+  int cpu_mhz, gpu_mhz, cpu_valid, cores[4], active_mask;
+  int memory_valid, free_user, free_cdram, heap_used, heap_total;
+  int wifi_state, signal; unsigned long long storage_total, storage_free;
+} plat_performance_t;
+void plat_performance(plat_performance_t *out);
+#endif
 #endif /* CORE_PLAT_H */

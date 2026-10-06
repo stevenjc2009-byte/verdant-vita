@@ -11,6 +11,7 @@ jobs:
         run: |
           python3 tools/check_vita_assets.py
           python3 tests/updater_test.py
+          python3 tests/performance_test.py
           python3 tests/offline_tools_test.py
       - name: Test native update recovery
         run: |
@@ -18,3 +19,5 @@ jobs:
           ASAN_OPTIONS=detect_leaks=0 python3 tests/update_apply_test.py /tmp/verdant-update-test
           gcc -O1 -g -fsanitize=address,undefined -Isource/core tests/setup_test.c -lcrypto -o /tmp/verdant-setup-test
           ASAN_OPTIONS=detect_leaks=0 python3 tests/setup_test.py /tmp/verdant-setup-test
+          gcc -O1 -g -fsanitize=address,undefined tests/vita_frame_test.c -lpthread -o /tmp/verdant-frame-test
+          /tmp/verdant-frame-test

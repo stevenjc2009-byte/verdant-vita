@@ -168,6 +168,9 @@ static bool TimeSinceUs(uint64_t last_us, uint64_t interval_us) {
 }
 
 static void PresentTopScreen(uint64_t *last_present_us) {
+#ifdef PLAT_VITA
+  plat_desktop_scale(100);
+#endif
   plat_fb_t fb;
   if (!plat_surface(PLAT_SURF_TERM, &fb)) return;
   // Locked only around the part that actually touches term_state/reads the

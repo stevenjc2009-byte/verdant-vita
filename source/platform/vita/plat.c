@@ -67,7 +67,12 @@ static char        g_model[64];
 static SceUID   vita_fb_uid[2] = {-1, -1};
 static uint8_t *vita_scanout[2];
 static int vita_front;
+static int vita_desktop_scale = 100;
+void plat_desktop_scale(int percent) { vita_desktop_scale = percent; }
 static uint8_t *vita_fb;
+static SceUID vita_display_thread = -1;
+static SceUID vita_frame_ready = -1, vita_copy_done = -1, vita_frame_done = -1;
+static atomic_bool vita_display_stop;
 
 /* Drawing uses cached ordinary RAM. Only completed frames are copied into
    the inactive CDRAM scanout buffer, so clearing/repainting cannot flash. */
@@ -91,19 +96,8 @@ bool plat_surface(plat_surf s, plat_fb_t *out) {
   return false;
 }
 
-void plat_present(unsigned mask) {
-  if (!mask || !vita_fb) return;
-  int back = vita_front ^ 1;
-  memcpy(vita_scanout[back], vita_fb, VITA_FB_PITCH * VITA_SCREEN_H);
-  SceDisplayFrameBuf fb = {
-    .size = sizeof(fb), .base = vita_scanout[back],
-    .pitch = VITA_FB_PITCH_PX, .pixelformat = SCE_DISPLAY_PIXELFORMAT_A8B8G8R8,
-    .width = VITA_SCREEN_W, .height = VITA_SCREEN_H,
-  };
-  if (sceDisplaySetFrameBuf(&fb, SCE_DISPLAY_SETBUF_NEXTFRAME) < 0) return;
-  sceDisplayWaitSetFrameBuf();
-  vita_front = back;
-}
+#include "frame_worker.h"
+#include "native_http.h"
 
 /* ---------------------------------------------------------------- touch -- */
 
@@ -168,6 +162,8 @@ bool plat_init(void) {
   vita_init_note("display setup",fb_result);
   if (fb_result < 0) return false;
   sceDisplayWaitVblankStart();
+  vita_init_note("UI affinity core 0", sceKernelChangeThreadCpuAffinityMask(0, SCE_KERNEL_CPU_MASK_USER_0));
+  vita_init_note("display worker core 1 (sync fallback on error)", vita_display_start());
 
   sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
   vita_touch_init();
@@ -201,6 +197,7 @@ bool plat_init(void) {
 }
 
 void plat_exit(void) {
+  vita_display_cleanup();
   vm_exit();
   if (caps.sensors) sceMotionStopSampling();
   free(vita_fb);
@@ -221,7 +218,7 @@ const char *plat_model(void) { return g_model; }
    guest nothing, crank it */
 void plat_ui_cadence(uint32_t *redraw_us, uint32_t *poll_us) {
   *redraw_us = 16666;          /* 60fps */
-  *poll_us   = 1000000u / 60;
+  *poll_us   = 2000; /* Poll between draws; the display worker owns vblank. */
 }
 
 /* ----------------------------------------------------------------- time -- */
@@ -562,3 +559,42 @@ const int plat_hw_count = (int)(sizeof(plat_hw_files) / sizeof(plat_hw_files[0])
 int plat_hw_camera(bool inner, uint8_t **frame) {plat_mutex_lock(&vm_io_lock);int n=vm_camera(inner,frame);plat_mutex_unlock(&vm_io_lock);return n;}
 int plat_hw_mic_read(uint8_t *out, int max) {plat_mutex_lock(&vm_io_lock);int n=vm_mic_read(out,max);plat_mutex_unlock(&vm_io_lock);return n;}
 int plat_hw_audio_write(const uint8_t *d, int l) {plat_mutex_lock(&vm_io_lock);int n=vm_audio_write(d,l);plat_mutex_unlock(&vm_io_lock);return n;}
+
+/* Core utilization is sampled from the kernel's microsecond idle clocks. */
+#include <malloc.h>
+void plat_performance(plat_performance_t *out) {
+  memset(out, 0, sizeof(*out));
+  for (int i=0;i<4;i++) out->cores[i]=-1;
+  out->cpu_mhz=scePowerGetArmClockFrequency();
+  out->gpu_mhz=scePowerGetGpuClockFrequency();
+  out->wifi_state=-1; out->signal=-1;
+  sceNetCtlInetGetState(&out->wifi_state);
+  SceNetCtlInfo info;
+  if (sceNetCtlInetGetInfo(SCE_NETCTL_INFO_GET_RSSI_PERCENTAGE, &info)>=0)
+    out->signal=info.rssi_percentage;
+  SceKernelSystemInfo system={.size=sizeof(system)};
+  static uint64_t previous_time, idle[4];
+  uint64_t now=plat_us();
+  if (sceKernelGetSystemInfo(&system)>=0) {
+    out->active_mask=system.activeCpuMask;
+    if (previous_time && now>previous_time) {
+      out->cpu_valid=1;
+      for(int i=0;i<4;i++) {
+        uint64_t delta=system.cpuInfo[i].idleClock-idle[i], elapsed=now-previous_time;
+        out->cores[i]= delta>=elapsed ? 0 : 100-(int)(delta*100/elapsed);
+      }
+    }
+    for(int i=0;i<4;i++) idle[i]=system.cpuInfo[i].idleClock;
+    previous_time=now;
+  }
+  SceKernelFreeMemorySizeInfo memory={.size=sizeof(memory)};
+  if(sceKernelGetFreeMemorySize(&memory)>=0) {
+    out->memory_valid=1; out->free_user=memory.size_user; out->free_cdram=memory.size_cdram;
+  }
+  struct mallinfo heap=mallinfo();
+  out->heap_used=heap.uordblks; out->heap_total=_newlib_heap_size_user;
+  uint64_t total=0, free=0;
+  if(sceAppMgrGetDevInfo("ux0:",&total,&free)>=0) {
+    out->storage_total=total; out->storage_free=free;
+  }
+}
